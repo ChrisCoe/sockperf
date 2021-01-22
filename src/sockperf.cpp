@@ -648,6 +648,9 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         { 't',                                                 AOPT_ARG,
           aopt_set_literal('t'),                               aopt_set_string("time"),
           "Run for <sec> seconds (default 1, max = 36000000)." },
+        { 'o',                                                 AOPT_ARG,
+          aopt_set_literal('o'),                               aopt_set_string("observations"),
+          "Run for observations (default 0, max = 1000000)." },
         { OPT_CLIENTPORT,
           AOPT_ARG,
           aopt_set_literal(0),
@@ -733,6 +736,23 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                 }
             } else {
                 log_msg("'-%c' Invalid value", 't');
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, 'o')) {
+            const char *optarg = aopt_value(self_obj, 'o');
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value > MAX_OBSERVATION) {
+                    log_msg("'-%c' Invalid observations: %s", 'o', optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    s_user_params.observation_test_duration = value;
+                }
+            } else {
+                log_msg("'-%c' Invalid value", 'o');
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
@@ -2148,7 +2168,7 @@ void set_defaults() {
     g_fds_array = (fds_data **)MALLOC(MAX_FDS_NUM * sizeof(fds_data *));
     if (!g_fds_array) {
         log_err("Failed to allocate memory for global pointer fds_array");
-        exit_with_log(SOCKPERF_ERR_NO_MEMORY);
+        exit_with_log(SOCKPERF_ERR_NO_MEMORY); // TODO: This  does not exit properly I think.
     }
     int igmp_max_memberships = read_int_from_sys_file("/proc/sys/net/ipv4/igmp_max_memberships");
     if (igmp_max_memberships != -1) IGMP_MAX_MEMBERSHIPS = igmp_max_memberships;
@@ -2159,6 +2179,7 @@ void set_defaults() {
     s_user_params.tx_mc_if_addr.s_addr = htonl(INADDR_ANY);
     s_user_params.mc_source_ip_addr.s_addr = htonl(INADDR_ANY);
     s_user_params.sec_test_duration = DEFAULT_TEST_DURATION;
+    s_user_params.observation_test_duration = 0;
     s_user_params.client_bind_info.sin_family = AF_INET;
     s_user_params.client_bind_info.sin_addr.s_addr = INADDR_ANY;
     s_user_params.client_bind_info.sin_port = 0;

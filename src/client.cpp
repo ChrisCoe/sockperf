@@ -159,7 +159,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
     TicksTime testEnd =
         g_pPacketTimes->getTxTime(sendCount); // will be "truncated" to last pong request packet
 
-    if (!g_pApp->m_const_params.pPlaybackVector) { // no warmup in playback mode
+    if (!g_pApp->m_const_params.pPlaybackVector &&                  // no warmup in playback mode
+            !g_pApp->m_const_params.observation_test_duration) {    // no observation mode
         testStart += TicksDuration::TICKS1MSEC * TEST_START_WARMUP_MSEC;
         testEnd -= TicksDuration::TICKS1MSEC * TEST_END_COOLDOWN_MSEC;
     }
@@ -180,7 +181,12 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
     uint32_t denominator = g_pApp->m_const_params.full_rtt ? 1 : 2;
     uint64_t startValidSeqNo = 0;
     uint64_t endValidSeqNo = 0;
-    for (size_t i = 1; (counter < SIZE) && (testStart < testEnd); i++) {
+    size_t start_searching_here = 1;
+    // Observation mode used
+    if (g_pApp->m_const_params.observation_test_duration != 0) {
+        start_searching_here += TEST_START_WARMUP_OBS;
+    }
+    for (size_t i = start_searching_here; (counter < SIZE) && (testStart < testEnd); i++) {
         uint64_t seqNo = i * replyEvery;
         const TicksTime &txTime = g_pPacketTimes->getTxTime(seqNo);
         const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(seqNo)[SERVER_NO];
@@ -636,7 +642,8 @@ int Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration,
                 if (rc == SOCKPERF_ERR_NONE) {
                     log_msg("Starting test...");
 
-                    if (!g_pApp->m_const_params.pPlaybackVector) {
+                    if (!g_pApp->m_const_params.pPlaybackVector &&
+                        !g_pApp->m_const_params.observation_test_duration) { // no observation mode
                         struct itimerval timer;
                         set_client_timer(&timer);
                         if (os_set_duration_timer(timer, client_sig_handler)) {
@@ -663,9 +670,38 @@ template <class IoType, class SwitchDataIntegrity, class SwitchActivityInfo,
           class SwitchCycleDuration, class SwitchMsgSize, class PongModeCare>
 void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration, SwitchMsgSize,
             PongModeCare>::doSendThenReceiveLoop() {
+    int counter_try = 0;
+    int counter_valid = 0;
+    const int SERVER_NO = 0; // This is always zero
+    const uint64_t replyEvery = g_pApp->m_const_params.reply_every;
+    TicksTime testStart;
+    int warmup_observations = TEST_START_WARMUP_OBS; // TODO: coello, casting issue?
+    int cooldown_observations = TEST_START_COOLDOWN_OBS; // TODO: coello, casting issue?
+    int observation_target = g_pApp->m_const_params.observation_test_duration;
+    int stop_counting = warmup_observations + cooldown_observations + observation_target;
+
     // cycle through all set fds in the array (with wrap around to beginning)
-    for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd)
+    for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd) {
         client_send_then_receive(curr_fds);
+        if(counter_try == 0) {
+            testStart = g_pPacketTimes->getTxTime(replyEvery);
+        }
+        counter_try++;
+        const TicksTime &txTime = g_pPacketTimes->getTxTime(counter_try);
+        const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(counter_try)[SERVER_NO];
+
+        if (txTime == TicksTime::TICKS0 || rxTime == TicksTime::TICKS0 || txTime < testStart) {
+            continue;
+        }
+        // TODO: coello, and add OOO, out of order
+        counter_valid++;
+        if(counter_valid == stop_counting) {
+            printf("g_receiveCount: %" PRId64 "\n counter_valid: %d\n counter_try %d\n",g_receiveCount, counter_valid, counter_try);
+            log_msg("A2!!");
+            g_b_exit = true;
+        }
+    }
+
 }
 
 //------------------------------------------------------------------------------
@@ -737,7 +773,7 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
         if (g_pApp->m_const_params.pPlaybackVector)
             doPlayback();
         else if (g_pApp->m_const_params.b_client_ping_pong)
-            doSendThenReceiveLoop();
+            doSendThenReceiveLoop(); // TODO: coello, remember to add observation for other modes
         else
             doSendLoop();
 
