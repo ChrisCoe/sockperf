@@ -138,7 +138,7 @@ static const struct app_modes {
       { proc_mode_ping_pong,   "ping-pong",
         aopt_set_string("pp"), "Run " MODULE_NAME " client for latency test in ping pong mode." },
       { proc_mode_playback, "playback",
-        aopt_set_string("pb"), "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based "
+        aopt_set_string("pb"), "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based"
                                                   " on timeline and message size." },
       { proc_mode_throughput,  "throughput",
         aopt_set_string("tp"), "Run " MODULE_NAME " client for one way throughput test." },
@@ -743,7 +743,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         }
 
         if (!rc && aopt_check(self_obj, 'o')) {
-            const char *optarg = aopt_value(self_obj, 'o'); // TODO: coello, need to parse for all modes. This is just for ping-pong
+            const char *optarg = aopt_value(self_obj, 'o');
             if (optarg) {
                 errno = 0;
                 int value = strtol(optarg, NULL, 0);
@@ -2174,7 +2174,7 @@ void set_defaults() {
     g_fds_array = (fds_data **)MALLOC(MAX_FDS_NUM * sizeof(fds_data *));
     if (!g_fds_array) {
         log_err("Failed to allocate memory for global pointer fds_array");
-        exit_with_log(SOCKPERF_ERR_NO_MEMORY); // TODO: This  does not exit properly I think.
+        exit_with_log(SOCKPERF_ERR_NO_MEMORY);
     }
     int igmp_max_memberships = read_int_from_sys_file("/proc/sys/net/ipv4/igmp_max_memberships");
     if (igmp_max_memberships != -1) IGMP_MAX_MEMBERSHIPS = igmp_max_memberships;
