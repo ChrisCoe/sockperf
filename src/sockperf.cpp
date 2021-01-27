@@ -137,9 +137,9 @@ static const struct app_modes {
         aopt_set_string("ul"), "Run " MODULE_NAME " client for latency under load test." },
       { proc_mode_ping_pong,   "ping-pong",
         aopt_set_string("pp"), "Run " MODULE_NAME " client for latency test in ping pong mode." },
-      { proc_mode_playback, "playback", aopt_set_string("pb"),
-        "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based "
-        "on timeline and message size." },
+      { proc_mode_playback, "playback",
+        aopt_set_string("pb"), "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based "
+                                                  " on timeline and message size." },
       { proc_mode_throughput,  "throughput",
         aopt_set_string("tp"), "Run " MODULE_NAME " client for one way throughput test." },
       { proc_mode_server, "server", aopt_set_string("sr"), "Run " MODULE_NAME " as a server." },
@@ -723,6 +723,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
 
     /* Set command line specific values */
     if (!rc && self_obj) {
+        bool time_based_used = false;
         if (!rc && aopt_check(self_obj, 't')) {
             const char *optarg = aopt_value(self_obj, 't');
             if (optarg) {
@@ -732,6 +733,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                     log_msg("'-%c' Invalid duration: %s", 't', optarg);
                     rc = SOCKPERF_ERR_BAD_ARGUMENT;
                 } else {
+                    time_based_used = true;
                     s_user_params.sec_test_duration = value;
                 }
             } else {
@@ -741,7 +743,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         }
 
         if (!rc && aopt_check(self_obj, 'o')) {
-            const char *optarg = aopt_value(self_obj, 'o');
+            const char *optarg = aopt_value(self_obj, 'o'); // TODO: coello, need to parse for all modes. This is just for ping-pong
             if (optarg) {
                 errno = 0;
                 int value = strtol(optarg, NULL, 0);
@@ -749,6 +751,10 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                     log_msg("'-%c' Invalid observations: %s", 'o', optarg);
                     rc = SOCKPERF_ERR_BAD_ARGUMENT;
                 } else {
+                    if (time_based_used) {
+                        log_msg("Can't have both time and observation based");
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    }
                     s_user_params.observation_test_duration = value;
                 }
             } else {

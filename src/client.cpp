@@ -64,6 +64,19 @@ void set_client_timer(struct itimerval *timer) {
 }
 
 //------------------------------------------------------------------------------
+/* set the timer on client based on observation parameter given by user */
+void set_observation_timer(struct itimerval *timer) {
+    // extra sec and extra msec will be excluded from results
+    timer->it_value.tv_sec =
+        (g_pApp->m_const_params.observation_test_duration + TEST_START_WARMUP_OBS +
+        TEST_START_COOLDOWN_OBS) >> 12; // Right shift by 12
+    timer->it_value.tv_sec++;
+    timer->it_value.tv_usec = 0;
+    timer->it_interval.tv_sec = 0;
+    timer->it_interval.tv_usec = 0;
+}
+
+//------------------------------------------------------------------------------
 void printPercentiles(FILE *f, TicksDuration *pLat, size_t size) {
     qsort(pLat, size, sizeof(TicksDuration), TicksDuration::compare);
 
@@ -174,66 +187,74 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
     TicksDuration rtt;
     TicksDuration sumRtt(0);
     size_t counter = 0;
-    size_t lcounter = 0;
     TicksTime prevRxTime;
     TicksTime startValidTime;
     TicksTime endValidTime;
     uint32_t denominator = g_pApp->m_const_params.full_rtt ? 1 : 2;
     uint64_t startValidSeqNo = 0;
     uint64_t endValidSeqNo = 0;
-    size_t start_searching_here = 1;
-    // Observation mode used
+    uint64_t start_searching_here = 1;
+    uint64_t end_observation_here = -1;
+    bool observation_mode_used = false;
+
+    //Observation mode used
     if (g_pApp->m_const_params.observation_test_duration != 0) {
-        start_searching_here += TEST_START_WARMUP_OBS;
+        observation_mode_used = true;
+        start_searching_here += TEST_START_WARMUP_OBS; // remove observational warmup 
+        end_observation_here = g_pApp->m_const_params.observation_test_duration + start_searching_here; // remove observational cooldown
     }
-    for (size_t i = start_searching_here; (counter < SIZE) && (testStart < testEnd); i++) {
-        uint64_t seqNo = i * replyEvery;
-        const TicksTime &txTime = g_pPacketTimes->getTxTime(seqNo);
-        const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(seqNo)[SERVER_NO];
+    if(testStart < testEnd) {
+        for (uint64_t seqNo = start_searching_here; (counter < SIZE) && (seqNo <= SIZE); seqNo += replyEvery) {
+            const TicksTime &txTime = g_pPacketTimes->getTxTime(seqNo);
+            const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(seqNo)[SERVER_NO];
 
-        if ((txTime > testEnd) || (txTime == TicksTime::TICKS0)) {
-            break;
-        }
-
-        if (txTime < testStart) {
-            continue;
-        }
-
-        if (startValidSeqNo == 0) {
-            startValidSeqNo = seqNo;
-            startValidTime = txTime;
-        }
-
-        if (rxTime == TicksTime::TICKS0) {
-            g_pPacketTimes->incDroppedCount(SERVER_NO);
-            if (endValidTime < txTime) {
-                endValidSeqNo = seqNo;
-                endValidTime = txTime;
+            if ((txTime > testEnd) || (txTime == TicksTime::TICKS0)) {
+                break;
             }
-            continue;
+
+            if(observation_mode_used && seqNo >= end_observation_here) {
+                break;
+            }
+
+            if (txTime < testStart) {
+                continue;
+            }
+
+            if (startValidSeqNo == 0) {
+                startValidSeqNo = seqNo;
+                startValidTime = txTime; 
+            }
+
+            if (rxTime == TicksTime::TICKS0) {
+                g_pPacketTimes->incDroppedCount(SERVER_NO);
+                if (endValidTime < txTime) {
+                    endValidSeqNo = seqNo;
+                    endValidTime = txTime;
+                }
+                continue;
+            }
+
+            if (rxTime < prevRxTime) {
+                g_pPacketTimes->incOooCount(SERVER_NO);
+                continue;
+            }
+
+            if (g_pApp->m_const_params.fileFullLog) {
+                pFullLog[counter][0] = txTime;
+                pFullLog[counter][1] = rxTime;
+            }
+
+            endValidSeqNo = seqNo;
+            endValidTime = rxTime;
+
+            rtt = rxTime - txTime;
+
+            sumRtt += rtt;
+            pLat[counter] = rtt / denominator;
+
+            prevRxTime = rxTime;
+            counter++;
         }
-
-        if (rxTime < prevRxTime) {
-            g_pPacketTimes->incOooCount(SERVER_NO);
-            continue;
-        }
-
-        if (g_pApp->m_const_params.fileFullLog) {
-            pFullLog[lcounter][0] = txTime;
-            pFullLog[lcounter][1] = rxTime;
-        }
-        lcounter++;
-
-        endValidSeqNo = seqNo;
-        endValidTime = rxTime;
-
-        rtt = rxTime - txTime;
-
-        sumRtt += rtt;
-        pLat[counter] = rtt / denominator;
-
-        prevRxTime = rxTime;
-        counter++;
     }
 
     if (!counter) {
@@ -272,7 +293,7 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
 
         printPercentiles(f, pLat, counter);
 
-        dumpFullLog(SERVER_NO, pFullLog, lcounter, pLat);
+        dumpFullLog(SERVER_NO, pFullLog, counter, pLat);
     }
 
     delete[] pLat;
@@ -288,7 +309,7 @@ void stream_statistics(Message *pMsgRequest) {
 
     const uint64_t sendCount = pMsgRequest->getSequenceCounter();
 
-    // Send only mode!
+    // Send only mode! // TODO: coello, look here
     if (g_skipCount) {
         log_msg("Total of %" PRIu64 " messages sent in %.3lf sec (%" PRIu64 " messages skipped)\n",
                 sendCount, totalRunTime.toDecimalUsec() / 1000000, g_skipCount);
@@ -358,7 +379,11 @@ void client_sig_handler(int signum) {
 
     switch (signum) {
     case SIGALRM:
-        log_msg("Test end (interrupted by timer)");
+        if(!g_pApp->m_const_params.observation_test_duration) {
+            log_msg("Test end (interrupted by timer)");
+        } else {
+            log_msg("Test end, observations taking too long (interrupted by timer)");
+        }
         break;
     case SIGINT:
         log_msg("Test end (interrupted by user)");
@@ -642,10 +667,13 @@ int Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration,
                 if (rc == SOCKPERF_ERR_NONE) {
                     log_msg("Starting test...");
 
-                    if (!g_pApp->m_const_params.pPlaybackVector &&
-                        !g_pApp->m_const_params.observation_test_duration) { // no observation mode
+                    if (!g_pApp->m_const_params.pPlaybackVector) {
                         struct itimerval timer;
-                        set_client_timer(&timer);
+                        if(!g_pApp->m_const_params.observation_test_duration) {
+                            set_client_timer(&timer);
+                        } else {
+                            set_observation_timer(&timer);
+                        }
                         if (os_set_duration_timer(timer, client_sig_handler)) {
                             log_err("Failed setting test duration timer");
                             rc = SOCKPERF_ERR_FATAL;
@@ -670,38 +698,49 @@ template <class IoType, class SwitchDataIntegrity, class SwitchActivityInfo,
           class SwitchCycleDuration, class SwitchMsgSize, class PongModeCare>
 void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration, SwitchMsgSize,
             PongModeCare>::doSendThenReceiveLoop() {
-    int counter_try = 0;
-    int counter_valid = 0;
-    const int SERVER_NO = 0; // This is always zero
-    const uint64_t replyEvery = g_pApp->m_const_params.reply_every;
-    TicksTime testStart;
-    int warmup_observations = TEST_START_WARMUP_OBS; // TODO: coello, casting issue?
-    int cooldown_observations = TEST_START_COOLDOWN_OBS; // TODO: coello, casting issue?
-    int observation_target = g_pApp->m_const_params.observation_test_duration;
-    int stop_counting = warmup_observations + cooldown_observations + observation_target;
+    log_msg("Ping pong boys");
+    if (!g_pApp->m_const_params.observation_test_duration) {
+        // Time based 
+        // cycle through all set fds in the array (with wrap around to beginning)
+        for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd)
+            client_send_then_receive(curr_fds);
+    } else {
+        // Observation based
+        int seqNo = 0;
+        int counter_valid = 0;
+        const int SERVER_NO = 0; // This is always zero
+        const uint64_t replyEvery = g_pApp->m_const_params.reply_every;
+        TicksTime testStart;
+        TicksTime prevRxTime;
+        int warmup_observations = TEST_START_WARMUP_OBS; // TODO: coello, casting issue?
+        int cooldown_observations = TEST_START_COOLDOWN_OBS; // TODO: coello, casting issue?
+        int observation_target = g_pApp->m_const_params.observation_test_duration;
+        int stop_counting = warmup_observations + cooldown_observations + observation_target;
 
-    // cycle through all set fds in the array (with wrap around to beginning)
-    for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd) {
-        client_send_then_receive(curr_fds);
-        if(counter_try == 0) {
-            testStart = g_pPacketTimes->getTxTime(replyEvery);
-        }
-        counter_try++;
-        const TicksTime &txTime = g_pPacketTimes->getTxTime(counter_try);
-        const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(counter_try)[SERVER_NO];
+        // cycle through all set fds in the array (with wrap around to beginning)
+        for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd) {
+            client_send_then_receive(curr_fds);
+            if(seqNo == 0) {
+                testStart = g_pPacketTimes->getTxTime(replyEvery);
+            }
 
-        if (txTime == TicksTime::TICKS0 || rxTime == TicksTime::TICKS0 || txTime < testStart) {
-            continue;
-        }
-        // TODO: coello, and add OOO, out of order
-        counter_valid++;
-        if(counter_valid == stop_counting) {
-            printf("g_receiveCount: %" PRId64 "\n counter_valid: %d\n counter_try %d\n",g_receiveCount, counter_valid, counter_try);
-            log_msg("A2!!");
-            g_b_exit = true;
+            seqNo+= replyEvery;
+            const TicksTime &txTime = g_pPacketTimes->getTxTime(seqNo);
+            const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(seqNo)[SERVER_NO];
+
+            if (txTime == TicksTime::TICKS0 || rxTime == TicksTime::TICKS0 ||
+                txTime < testStart || rxTime < prevRxTime) {
+                continue;
+            }
+            
+            prevRxTime = rxTime;
+            counter_valid++;
+            if(counter_valid == stop_counting) {
+                printf("g_receiveCount: %" PRId64 "\n counter_valid: %d\n seqNo %d\n",g_receiveCount, counter_valid, seqNo);
+                g_b_exit = true;
+            }
         }
     }
-
 }
 
 //------------------------------------------------------------------------------
@@ -709,9 +748,30 @@ template <class IoType, class SwitchDataIntegrity, class SwitchActivityInfo,
           class SwitchCycleDuration, class SwitchMsgSize, class PongModeCare>
 void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration, SwitchMsgSize,
             PongModeCare>::doSendLoop() {
-    // cycle through all set fds in the array (with wrap around to beginning)
-    for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd)
-        client_send_burst(curr_fds);
+    log_msg("doing doSendLoop");
+
+    // if (!g_pApp->m_const_params.observation_test_duration) {
+    //     // Time based
+        for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd)
+            client_send_burst(curr_fds);
+    // } else {
+    //     // Observation based
+    //     int warmup_observations = TEST_START_WARMUP_OBS; // TODO: coello, casting issue?
+    //     int cooldown_observations = TEST_START_COOLDOWN_OBS; // TODO: coello, casting issue?
+    //     int observation_target = g_pApp->m_const_params.observation_test_duration;
+    //     int stop_counting = warmup_observations + cooldown_observations + observation_target;
+    //     int counter = 0;
+    //     // cycle through all set fds in the array (with wrap around to beginning)
+    //     for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd) {
+    //         client_send_burst(curr_fds);
+    //         counter++;
+    //         if(counter >= stop_counting) {
+    //             s_endTime.setNowNonInline(); // End timestamp
+    //             g_b_exit = true;
+    //         }
+    //     }
+    //     log_msg("This is counter pollo: %d", counter);
+    // }
 }
 
 //------------------------------------------------------------------------------
