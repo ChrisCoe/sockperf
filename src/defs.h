@@ -124,7 +124,7 @@ const uint32_t REPLY_EVERY_DEFAULT = 100;
 const uint32_t TEST_START_WARMUP_MSEC = 400;
 const uint32_t TEST_END_COOLDOWN_MSEC = 50;
 const uint32_t TEST_START_WARMUP_OBS = 8000;
-const uint32_t TEST_START_COOLDOWN_OBS = 1000;
+const uint32_t TEST_END_COOLDOWN_OBS = 1000;
 
 const uint32_t TEST_FIRST_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC = 50;
 #define TEST_ANY_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC (0.1)
@@ -162,7 +162,7 @@ const uint32_t TEST_FIRST_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC = 50;
 
 #define MAX_ARGV_SIZE 256
 #define MAX_DURATION 36000000
-#define MAX_OBSERVATION 1000000 // TODO: coello, not sure on this value
+#define MAX_OBSERVATIONS 10000000 // TODO: coello, not sure on this value
 extern const int MAX_FDS_NUM;
 #define SOCK_BUFF_DEFAULT_SIZE 0
 #define DEFAULT_SELECT_TIMEOUT_MSEC 10
@@ -646,6 +646,8 @@ struct user_params_t {
     unsigned int pre_warmup_wait;
     uint32_t cooldown_msec;
     uint32_t warmup_msec;
+    uint32_t cooldown_obs;
+    uint32_t warmup_obs;
     bool is_vmarxfiltercb;
     bool is_vmazcopyread;
     TicksDuration cycleDuration;
@@ -683,7 +685,6 @@ struct user_params_t {
     uint32_t dummy_mps;                   // client side only
     TicksDuration dummySendCycleDuration; // client side only
     uint32_t rate_limit;
-
 };
 
 struct mutable_params_t {};

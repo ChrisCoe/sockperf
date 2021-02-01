@@ -650,7 +650,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
           "Run for <sec> seconds (default 1, max = 36000000)." },
         { 'o',                                                 AOPT_ARG,
           aopt_set_literal('o'),                               aopt_set_string("observations"),
-          "Run for observations (default 0, max = 1000000)." },
+          "Run for observations (default 0, max = 10000000)." },
         { OPT_CLIENTPORT,
           AOPT_ARG,
           aopt_set_literal(0),
@@ -747,7 +747,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
             if (optarg) {
                 errno = 0;
                 int value = strtol(optarg, NULL, 0);
-                if (errno != 0 || value <= 0 || value > MAX_OBSERVATION) {
+                if (errno != 0 || value <= 0 || value > MAX_OBSERVATIONS) {
                     log_msg("'-%c' Invalid observations: %s", 'o', optarg);
                     rc = SOCKPERF_ERR_BAD_ARGUMENT;
                 } else {
@@ -3241,6 +3241,8 @@ int bringup(const int *p_daemonize) {
                 TEST_FIRST_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC * 1000,
                 (int)(TEST_ANY_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC * 1000));
         }
+        s_user_params.warmup_obs = TEST_START_WARMUP_OBS; // TODO, coello: make user input possible? Not done for time-based
+        s_user_params.cooldown_obs = TEST_END_COOLDOWN_OBS; // TODO, coello: make user input possible? Not done for time-based
 
         uint64_t _maxTestDuration = 1 + s_user_params.sec_test_duration +
                                     (s_user_params.warmup_msec + s_user_params.cooldown_msec) /

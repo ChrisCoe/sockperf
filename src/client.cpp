@@ -67,7 +67,7 @@ void set_client_timer(struct itimerval *timer) {
 /* set the timer on client based on [-o observation] parameter given by user */
 void set_observation_timer(struct itimerval *timer) {
     // extra sec and extra msec will be excluded from results
-    uint32_t total_observations = TEST_START_WARMUP_OBS + TEST_START_COOLDOWN_OBS +
+    uint32_t total_observations = s_user_params.warmup_obs + s_user_params.cooldown_obs +
                                   g_pApp->m_const_params.observation_test_duration;
     uint32_t waiting_cap = (total_observations >> 12) + 1; // Gurantee at least 1 sec
     timer->it_value.tv_sec = waiting_cap;
@@ -140,16 +140,33 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
     if (SERVER_NO == 0) {
         TicksDuration totalRunTime = s_endTime - s_startTime;
         if (g_skipCount) {
-            log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up time=%" PRIu32
-                             " msec; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64
+            if(!g_pApp->m_const_params.observation_test_duration) {
+                log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up time=%" PRIu32
+                                " msec; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64
+                                "; SkippedMessages=%" PRIu64 "",
+                            totalRunTime.toDecimalUsec() / 1000000,
+                            g_pApp->m_const_params.warmup_msec, sendCount, receiveCount, g_skipCount);
+            } else {
+            log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up observations=%" PRIu32
+                             "; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64
                              "; SkippedMessages=%" PRIu64 "",
                           totalRunTime.toDecimalUsec() / 1000000,
-                          g_pApp->m_const_params.warmup_msec, sendCount, receiveCount, g_skipCount);
+                          g_pApp->m_const_params.warmup_obs, sendCount, receiveCount, g_skipCount);
+            }
+
         } else {
-            log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up time=%" PRIu32
-                             " msec; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64 "",
-                          totalRunTime.toDecimalUsec() / 1000000,
-                          g_pApp->m_const_params.warmup_msec, sendCount, receiveCount);
+            if(!g_pApp->m_const_params.observation_test_duration) {
+                log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up time=%" PRIu32
+                                " msec; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64 "",
+                            totalRunTime.toDecimalUsec() / 1000000,
+                            g_pApp->m_const_params.warmup_msec, sendCount, receiveCount);
+            }
+            else {
+                log_msg_file2(f, "[Total Run] RunTime=%.3lf sec; Warm up observations=%" PRIu32
+                                "; SentMessages=%" PRIu64 "; ReceivedMessages=%" PRIu64 "",
+                            totalRunTime.toDecimalUsec() / 1000000,
+                            g_pApp->m_const_params.warmup_obs, sendCount, receiveCount);
+            }
         }
     }
 
@@ -205,7 +222,9 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
 
     if (g_pApp->m_const_params.observation_test_duration != 0) {
         observation_mode_used = true;
-        start_searching_here += TEST_START_WARMUP_OBS;
+        if(g_pApp->m_const_params.do_warmup) {
+            start_searching_here += s_user_params.warmup_obs;
+        }
         end_observation_here = g_pApp->m_const_params.observation_test_duration + start_searching_here;
     }
 
@@ -313,6 +332,7 @@ void stream_statistics(Message *pMsgRequest) {
 
     const uint64_t sendCount = pMsgRequest->getSequenceCounter();
 
+    // Send only mode!
     if (g_skipCount) {
         log_msg("Total of %" PRIu64 " messages sent in %.3lf sec (%" PRIu64 " messages skipped)\n",
                 sendCount, totalRunTime.toDecimalUsec() / 1000000, g_skipCount);
@@ -712,8 +732,8 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
         const uint64_t replyEvery = g_pApp->m_const_params.reply_every;
         TicksTime testStart;
         TicksTime prevRxTime;
-        int warmup_observations = TEST_START_WARMUP_OBS; // TODO: coello, casting issue?
-        int cooldown_observations = TEST_START_COOLDOWN_OBS; // TODO: coello, casting issue?
+        int warmup_observations = g_pApp->m_const_params.do_warmup ? s_user_params.warmup_obs : 0; // TODO: coello, casting issue?
+        int cooldown_observations = s_user_params.cooldown_obs; // TODO: coello, casting issue?
         int observation_target = g_pApp->m_const_params.observation_test_duration;
         int stop_counting = warmup_observations + cooldown_observations + observation_target;
 
@@ -735,6 +755,8 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
             counter_valid++;
 
             if(counter_valid == stop_counting) {
+                s_endTime.setNowNonInline();
+                log_msg("Test end (reached observation target)");
                 g_b_exit = true;
             }
         }
