@@ -163,7 +163,7 @@ const uint32_t TEST_FIRST_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC = 50;
 
 #define MAX_ARGV_SIZE 256
 #define MAX_DURATION 36000000
-#define MAX_OBSERVATIONS 10000000 // TODO: coello, not sure on this value
+#define MAX_OBSERVATIONS 100000000 // TODO: coello, not sure on this value
 extern const int MAX_FDS_NUM;
 #define SOCK_BUFF_DEFAULT_SIZE 0
 #define DEFAULT_SELECT_TIMEOUT_MSEC 10
@@ -628,7 +628,7 @@ typedef enum { // must be coordinated with s_fds_handle_desc in common.cpp
     FD_HANDLE_MAX } fd_block_handler_t;
 
 struct user_params_t {
-    work_mode_t mode; // either  client or server
+    work_mode_t mode; // either client or server
     measurement_mode_t measurement; // either time or observation
     struct in_addr rx_mc_if_addr;
     struct in_addr tx_mc_if_addr;

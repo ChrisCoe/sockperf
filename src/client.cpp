@@ -762,6 +762,7 @@ template <class IoType, class SwitchDataIntegrity, class SwitchActivityInfo,
           class SwitchCycleDuration, class SwitchMsgSize, class PongModeCare>
 void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration, SwitchMsgSize,
             PongModeCare>::doSendLoop() {
+    // cycle through all set fds in the array (with wrap around to beginning)
     for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd)
         client_send_burst(curr_fds);
 }

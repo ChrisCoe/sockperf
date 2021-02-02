@@ -899,10 +899,10 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         printf("%s: %s\n", display_opt(id, temp_buf, sizeof(temp_buf)), sockperf_modes[id].note);
         printf("\n");
         printf("Usage: " MODULE_NAME " %s [options] [args]...\n", sockperf_modes[id].name);
-        printf(" " MODULE_NAME " %s -i ip  [-p port] [-m message_size] [-t time]\n",
+        printf(" " MODULE_NAME " %s -i ip  [-p port] [-m message_size] [-t time | -o observations]\n",
                sockperf_modes[id].name);
         printf(" " MODULE_NAME
-               " %s -f file [-F s/p/e] [-m message_size] [-r msg_size_range] [-t time]\n",
+               " %s -f file [-F s/p/e] [-m message_size] [-r msg_size_range] [-t time | -o observations]\n",
                sockperf_modes[id].name);
         printf("\n");
         printf("Options:\n");
