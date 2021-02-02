@@ -33,8 +33,8 @@
 /* Global variables */
 bool g_b_exit = false;
 bool g_b_errorOccured = false;
-uint64_t g_receiveCount = 0;    // TODO: should be one per server
-uint64_t g_skipCount = 0;       // TODO: should be one per server
+uint64_t g_receiveCount = 0; // TODO: should be one per server
+uint64_t g_skipCount = 0;    // TODO: should be one per server
 
 unsigned long long g_cycle_wait_loop_counter = 0;
 TicksTime g_cycleStartTime;
