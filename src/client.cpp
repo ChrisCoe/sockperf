@@ -222,7 +222,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
         end_observation_here = g_pApp->m_const_params.observation_test_count + start_searching_here;
     }
 
-    for (uint64_t seqNo = start_searching_here; (seqNo < SIZE); seqNo += replyEvery) {
+    for (uint64_t i = start_searching_here; (counter < SIZE); i++) {
+        uint64_t seqNo = i * replyEvery;
         const TicksTime &txTime = g_pPacketTimes->getTxTime(seqNo);
         const TicksTime &rxTime = g_pPacketTimes->getRxTimeArray(seqNo)[SERVER_NO];
 
@@ -399,7 +400,7 @@ void client_sig_handler(int signum) {
         if(g_pApp->m_const_params.measurement == TIME_BASED) {
             log_msg("Test end (interrupted by timer)");
         } else {
-            log_msg("Test end, observations taking too long (interrupted by timer)");
+            log_err("Test end, observations taking too long (interrupted by timer)");
         }
         break;
     case SIGINT:

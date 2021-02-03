@@ -423,6 +423,7 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.mps = MPS_DEFAULT;
     s_user_params.reply_every = REPLY_EVERY_DEFAULT;
 
@@ -707,6 +708,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.b_client_ping_pong = true;
     s_user_params.mps = UINT32_MAX;
     s_user_params.reply_every = 1;
@@ -723,24 +725,6 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
 
     /* Set command line specific values */
     if (!rc && self_obj) {
-        if (!rc && aopt_check(self_obj, 't')) {
-            const char *optarg = aopt_value(self_obj, 't');
-            if (optarg) {
-                errno = 0;
-                int value = strtol(optarg, NULL, 0);
-                if (errno != 0 || value <= 0 || value > MAX_DURATION) {
-                    log_msg("'-%c' Invalid duration: %s", 't', optarg);
-                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
-                } else {
-                    s_user_params.measurement = TIME_BASED;
-                    s_user_params.sec_test_duration = value;
-                }
-            } else {
-                log_msg("'-%c' Invalid value", 't');
-                rc = SOCKPERF_ERR_BAD_ARGUMENT;
-            }
-        }
-
         if (!rc && aopt_check(self_obj, 'o')) {
             const char *optarg = aopt_value(self_obj, 'o');
             if (optarg) {
@@ -750,15 +734,34 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                     log_msg("'-%c' Invalid observations: %s", 'o', optarg);
                     rc = SOCKPERF_ERR_BAD_ARGUMENT;
                 } else {
-                    if (s_user_params.measurement == TIME_BASED) {
-                        log_msg("Can't have both time and observation based");
-                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
-                    }
                     s_user_params.measurement = OBSERVATION_BASED;
                     s_user_params.observation_test_count = value;
                 }
             } else {
                 log_msg("'-%c' Invalid value", 'o');
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, 't')) {
+            const char *optarg = aopt_value(self_obj, 't');
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value > MAX_DURATION) {
+                    log_msg("'-%c' Invalid duration: %s", 't', optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    if (s_user_params.measurement == OBSERVATION_BASED) {
+                        log_msg("Can't have both observation and time based");
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.measurement = TIME_BASED;
+                        s_user_params.sec_test_duration = value;
+                    }
+                }
+            } else {
+                log_msg("'-%c' Invalid value", 't');
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
@@ -1007,6 +1010,7 @@ static int proc_mode_throughput(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.b_stream = true;
     s_user_params.mps = UINT32_MAX;
     s_user_params.reply_every = 1 << (8 * sizeof(s_user_params.reply_every) - 2);
@@ -1251,6 +1255,7 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.mps = MPS_DEFAULT;
     s_user_params.reply_every = REPLY_EVERY_DEFAULT;
 
