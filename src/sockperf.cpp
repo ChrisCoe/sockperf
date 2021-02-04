@@ -137,9 +137,9 @@ static const struct app_modes {
         aopt_set_string("ul"), "Run " MODULE_NAME " client for latency under load test." },
       { proc_mode_ping_pong,   "ping-pong",
         aopt_set_string("pp"), "Run " MODULE_NAME " client for latency test in ping pong mode." },
-      { proc_mode_playback, "playback", aopt_set_string("pb"),
-        "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based "
-        "on timeline and message size." },
+      { proc_mode_playback, "playback",
+        aopt_set_string("pb"), "Run " MODULE_NAME " client for latency test using playback of predefined traffic, based"
+                                                  " on timeline and message size." },
       { proc_mode_throughput,  "throughput",
         aopt_set_string("tp"), "Run " MODULE_NAME " client for one way throughput test." },
       { proc_mode_server, "server", aopt_set_string("sr"), "Run " MODULE_NAME " as a server." },
@@ -423,6 +423,7 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.mps = MPS_DEFAULT;
     s_user_params.reply_every = REPLY_EVERY_DEFAULT;
 
@@ -648,6 +649,9 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         { 't',                                                 AOPT_ARG,
           aopt_set_literal('t'),                               aopt_set_string("time"),
           "Run for <sec> seconds (default 1, max = 36000000)." },
+        { 'o',                                                 AOPT_ARG,
+          aopt_set_literal('o'),                               aopt_set_string("observations"),
+          "Run for observations (default 0, max = 10000000)." },
         { OPT_CLIENTPORT,
           AOPT_ARG,
           aopt_set_literal(0),
@@ -704,6 +708,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.b_client_ping_pong = true;
     s_user_params.mps = UINT32_MAX;
     s_user_params.reply_every = 1;
@@ -720,6 +725,24 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
 
     /* Set command line specific values */
     if (!rc && self_obj) {
+        if (!rc && aopt_check(self_obj, 'o')) {
+            const char *optarg = aopt_value(self_obj, 'o');
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value > MAX_OBSERVATIONS) {
+                    log_msg("'-%c' Invalid observations: %s", 'o', optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    s_user_params.measurement = OBSERVATION_BASED;
+                    s_user_params.observation_test_count = value;
+                }
+            } else {
+                log_msg("'-%c' Invalid value", 'o');
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
         if (!rc && aopt_check(self_obj, 't')) {
             const char *optarg = aopt_value(self_obj, 't');
             if (optarg) {
@@ -729,7 +752,13 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                     log_msg("'-%c' Invalid duration: %s", 't', optarg);
                     rc = SOCKPERF_ERR_BAD_ARGUMENT;
                 } else {
-                    s_user_params.sec_test_duration = value;
+                    if (s_user_params.measurement == OBSERVATION_BASED) {
+                        log_msg("Can't be both observation and time based");
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.measurement = TIME_BASED;
+                        s_user_params.sec_test_duration = value;
+                    }
                 }
             } else {
                 log_msg("'-%c' Invalid value", 't');
@@ -873,10 +902,10 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
         printf("%s: %s\n", display_opt(id, temp_buf, sizeof(temp_buf)), sockperf_modes[id].note);
         printf("\n");
         printf("Usage: " MODULE_NAME " %s [options] [args]...\n", sockperf_modes[id].name);
-        printf(" " MODULE_NAME " %s -i ip  [-p port] [-m message_size] [-t time]\n",
+        printf(" " MODULE_NAME " %s -i ip  [-p port] [-m message_size] [-t time | -o observations]\n",
                sockperf_modes[id].name);
         printf(" " MODULE_NAME
-               " %s -f file [-F s/p/e] [-m message_size] [-r msg_size_range] [-t time]\n",
+               " %s -f file [-F s/p/e] [-m message_size] [-r msg_size_range] [-t time | -o observations]\n",
                sockperf_modes[id].name);
         printf("\n");
         printf("Options:\n");
@@ -981,6 +1010,7 @@ static int proc_mode_throughput(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.b_stream = true;
     s_user_params.mps = UINT32_MAX;
     s_user_params.reply_every = 1 << (8 * sizeof(s_user_params.reply_every) - 2);
@@ -1225,6 +1255,7 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
 
     /* Set default values */
     s_user_params.mode = MODE_CLIENT;
+    s_user_params.measurement = TIME_BASED;
     s_user_params.mps = MPS_DEFAULT;
     s_user_params.reply_every = REPLY_EVERY_DEFAULT;
 
@@ -2159,6 +2190,7 @@ void set_defaults() {
     s_user_params.tx_mc_if_addr.s_addr = htonl(INADDR_ANY);
     s_user_params.mc_source_ip_addr.s_addr = htonl(INADDR_ANY);
     s_user_params.sec_test_duration = DEFAULT_TEST_DURATION;
+    s_user_params.observation_test_count = DEFAULT_OBSERVATION_COUNT;
     s_user_params.client_bind_info.sin_family = AF_INET;
     s_user_params.client_bind_info.sin_addr.s_addr = INADDR_ANY;
     s_user_params.client_bind_info.sin_port = 0;
@@ -3214,6 +3246,8 @@ int bringup(const int *p_daemonize) {
                 TEST_FIRST_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC * 1000,
                 (int)(TEST_ANY_CONNECTION_FIRST_PACKET_TTL_THRESHOLD_MSEC * 1000));
         }
+        s_user_params.warmup_obs = TEST_START_WARMUP_OBS;
+        s_user_params.cooldown_obs = TEST_END_COOLDOWN_OBS;
 
         uint64_t _maxTestDuration = 1 + s_user_params.sec_test_duration +
                                     (s_user_params.warmup_msec + s_user_params.cooldown_msec) /
