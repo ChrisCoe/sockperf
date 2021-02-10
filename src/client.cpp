@@ -64,12 +64,30 @@ void set_client_timer(struct itimerval *timer) {
 }
 
 //------------------------------------------------------------------------------
-/* set the timer on client based on [-o observation] parameter given by user */
-void set_observation_timer(struct itimerval *timer) {
-    uint32_t total_observations = s_user_params.warmup_obs + s_user_params.cooldown_obs +
-                                  g_pApp->m_const_params.observation_test_count;
-    uint32_t waiting_cap = (total_observations >> 12) + 1; // Gurantee at least 1 sec
-    timer->it_value.tv_sec = waiting_cap;
+/*  set the timer on client to limit waiting based on [-n number-of-observations] parameter given by
+    user and sampling data */
+void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
+    /*  Based off observation rate during sampling, estimate total run time.
+        Using warmup as our sample includes a bias for higher latency, because the head of
+        the test has less load and receiver has no recent cache. This works to our benefit
+        as we want an overestimate on waiting limit. */
+    TicksTime endSampling = endSampling.setNowNonInline();
+    TicksDuration sampleTime = endSampling - testStart;
+    uint64_t warmupObservations = s_user_params.warmup_obs;
+    uint64_t cooldownObservations = s_user_params.cooldown_obs;
+    uint64_t observationTarget = g_pApp->m_const_params.observation_test_count;
+    uint64_t totalObservations = warmupObservations + observationTarget + cooldownObservations;
+    uint64_t sampleObservations = warmupObservations;
+
+    // Calculate waiting limit                                          // (Units)
+    double sampleTimeSeconds = sampleTime.toDecimalUsec() / 1000000;    // secs
+    double sampleSecObsRate = sampleTimeSeconds / sampleObservations;   // secs/obs
+    double runTimeEstimate = sampleSecObsRate * totalObservations;      // (secs/obs)*obs = secs
+    double waitingCap = 1.5 * runTimeEstimate; // Add leeway to process stats and write to file
+    log_msg("RunTime Estimate=%.3lf sec, Time out in %.3lf sec", runTimeEstimate, waitingCap);
+
+    // Build timer
+    timer->it_value.tv_sec = waitingCap;
     timer->it_value.tv_usec = 0;
     timer->it_interval.tv_sec = 0;
     timer->it_interval.tv_usec = 0;
@@ -217,7 +235,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
     uint64_t end_observation_here = -1;
 
     if (g_pApp->m_const_params.measurement == OBSERVATION_BASED) {
-        end_observation_here = g_pApp->m_const_params.observation_test_count + start_searching_here;
+        start_searching_here += g_pApp->m_const_params.warmup_obs;
+        end_observation_here = start_searching_here + g_pApp->m_const_params.observation_test_count;
     }
 
     for (uint64_t i = start_searching_here; (counter < SIZE); i++) {
@@ -275,7 +294,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
 
     if (!counter) {
         log_msg_file2(
-            f, "No valid observations found. Try tune parameters: --time/--observations/--mps/--reply-every");
+            f, "No valid observations found. Try tune parameters: "
+               "--time/--number-of-observations/--mps/--reply-every");
     } else {
         TicksDuration validRunTime = endValidTime - startValidTime;
         log_msg_file2(f, "[Valid Duration] RunTime=%.3lf sec; SentMessages=%" PRIu64
@@ -398,7 +418,8 @@ void client_sig_handler(int signum) {
         if(g_pApp->m_const_params.measurement == TIME_BASED) {
             log_msg("Test end (interrupted by timer)");
         } else {
-            log_err("Test ends uncompleted, observations taking too long (interrupted by timer)");
+            exit_with_log("Test ends uncompleted, observations taking too long (interrupted by timer)",
+                                                                                 SOCKPERF_ERR_TIMEOUT);
         }
         break;
     case SIGINT:
@@ -687,12 +708,10 @@ int Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration,
                         struct itimerval timer;
                         if(g_pApp->m_const_params.measurement == TIME_BASED) {
                             set_client_timer(&timer);
-                        } else {
-                            set_observation_timer(&timer);
-                        }
-                        if (os_set_duration_timer(timer, client_sig_handler)) {
-                            log_err("Failed setting test duration timer");
-                            rc = SOCKPERF_ERR_FATAL;
+                            if (os_set_duration_timer(timer, client_sig_handler)) {
+                                log_err("Failed setting test duration timer");
+                                rc = SOCKPERF_ERR_FATAL;
+                            }
                         }
                     }
 
@@ -720,19 +739,25 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
             client_send_then_receive(curr_fds);
     } else {
         uint64_t seqNo = 0;
-        uint64_t counter_valid = 0;
+        uint64_t counterValid = 0;
         const int SERVER_NO = 0; // TODO: should be one per server (as of 1/27/21 sockperf handles only one server)
         const uint64_t replyEvery = g_pApp->m_const_params.reply_every;
         TicksTime testStart;
         TicksTime prevRxTime;
-        uint64_t warmup_observations = s_user_params.warmup_obs;
-        uint64_t cooldown_observations = s_user_params.cooldown_obs;
-        uint64_t observation_target = g_pApp->m_const_params.observation_test_count;
-        uint64_t stop_counting = warmup_observations + observation_target + cooldown_observations;
+        struct itimerval timer = {};
+        uint64_t warmupObservations = s_user_params.warmup_obs;
+        uint64_t cooldownObservations = s_user_params.cooldown_obs;
+        uint64_t observationTarget = g_pApp->m_const_params.observation_test_count;
+        uint64_t stopCounting = warmupObservations + observationTarget + cooldownObservations;
 
         // cycle through all set fds in the array (with wrap around to beginning)
         for (int curr_fds = m_ioHandler.m_fd_min; !g_b_exit; curr_fds = g_fds_array[curr_fds]->next_fd) {
             client_send_then_receive(curr_fds);
+
+            // Packet not recorded, nothing to validate
+            if (g_receiveCount == seqNo) {
+                continue;
+            }
 
             if(seqNo == 0) {
                 testStart = g_pPacketTimes->getTxTime(replyEvery); // first pong request packet
@@ -748,9 +773,17 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
                 continue;
             }
             prevRxTime = rxTime;
-            counter_valid++;
+            counterValid++;
 
-            if(counter_valid == stop_counting) {
+            // Set timer to limit waiting on total observations
+            if(counterValid == warmupObservations && timer.it_value.tv_sec == 0) {
+                set_client_time_out_timer(&timer, testStart);
+                if (os_set_duration_timer(timer, client_sig_handler)) {
+                    exit_with_log("Failed setting test observation timer", SOCKPERF_ERR_FATAL);
+                }
+            }
+
+            if(counterValid == stopCounting) {
                 s_endTime.setNowNonInline();
                 log_msg("Test end (finished observation count)");
                 g_b_exit = true;
