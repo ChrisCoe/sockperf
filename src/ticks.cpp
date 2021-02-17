@@ -29,6 +29,7 @@
 #define __STDC_LIMIT_MACROS // for INT64_MAX in __cplusplus
 
 #include "ticks.h"
+#include "defs.h"
 
 #include <string>
 #include <stdio.h>
@@ -159,4 +160,28 @@ public:
     double variance = (sum_sqr - size * avg * avg) / (size - 1);
     double stdDev = sqrt(variance);
     return TicksDuration(ticks_t(stdDev + 0.5), true);
+}
+
+//------------------------------------------------------------------------------
+/*static*/ TicksDuration TicksDuration::mad(TicksDuration *pArr, size_t size) {
+    if (size <= 1) return TICKS0;
+
+    double distanceToAvgSummed = 0;
+    double sum = 0;
+    double ticks = 0;
+
+    for (size_t i = 0; i < size; i++) {
+        ticks = (double)pArr[i].m_ticks;
+        sum += ticks;
+    }
+
+    double avg = sum / size;
+
+    for (size_t i = 0; i < size; i++) {
+        ticks = (double)pArr[i].m_ticks;
+        distanceToAvgSummed += abs(ticks - avg);
+    }
+
+    double mad = distanceToAvgSummed / size;
+    return TicksDuration(ticks_t(mad), true);
 }

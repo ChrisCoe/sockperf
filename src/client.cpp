@@ -33,6 +33,8 @@
 #include "packet.h"
 #include "switches.h"
 
+#include <math.h>
+
 TicksTime s_startTime, s_endTime;
 
 //==============================================================================
@@ -106,14 +108,24 @@ void printPercentiles(FILE *f, TicksDuration *pLat, size_t size) {
                   (long unsigned)size, observationsInPercentile);
 
     log_msg_file2(f, "---> <MAX> observation = %8.3lf", pLat[size - 1].toDecimalUsec());
+
+    double p75 = 0;
+    double p25 = 0;
     for (int i = 0; i < num; i++) {
         int index = (int)(0.5 + percentile[i] * size) - 1;
         if (index >= 0) {
             log_msg_file2(f, "---> percentile %6.3lf = %8.3lf", 100 * percentile[i],
                           pLat[index].toDecimalUsec());
+            if (percentile[i] == 0.25) {
+                p25 = pLat[index].toDecimalUsec();
+            }
+            if (percentile[i] == 0.75) {
+                p75 = pLat[index].toDecimalUsec();
+            }
         }
     }
     log_msg_file2(f, "---> <MIN> observation = %8.3lf", pLat[0].toDecimalUsec());
+    log_msg_file2(f, "---> <SIQR> = %.3lf", (p75 - p25)/2);
 }
 
 //------------------------------------------------------------------------------
@@ -305,15 +317,20 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
 
         TicksDuration avgRtt = counter ? sumRtt / (int)counter : TicksDuration::TICKS0;
         TicksDuration avgLatency = avgRtt / 2;
-        double usecAvarage =
-            g_pApp->m_const_params.full_rtt ? avgRtt.toDecimalUsec() : avgLatency.toDecimalUsec();
-
         TicksDuration stdDev = TicksDuration::stdDev(pLat, counter);
-        log_msg_file2(f, MAGNETA "====> avg-%s=%.3lf (std-dev=%.3lf)" ENDCOLOR,
-                      round_trip_str[g_pApp->m_const_params.full_rtt], usecAvarage,
-                      stdDev.toDecimalUsec());
+        TicksDuration mad = TicksDuration::mad(pLat, counter); // Mean Absolute Deviation
+        double usecAvarage = g_pApp->m_const_params.full_rtt ? avgRtt.toDecimalUsec() : avgLatency.toDecimalUsec();
+        double coefficientOfVariance = stdDev.toDecimalUsec() / usecAvarage;
+        double standardError = stdDev.toDecimalUsec() / sqrt(counter);
+        double significaneLevel99ZScore = 2.5758; // TODO:  We might want to do a list of levels (90,95,99) in a for loop
+        double lowerInterval = usecAvarage - significaneLevel99ZScore * standardError;
+        double upperInterval = usecAvarage + significaneLevel99ZScore * standardError;
+        log_msg_file2(f, MAGNETA "====> avg-%s=%.3lf (std-dev=%.3lf, mad=%.3lf, cv=%.3lf, std-error=%.3lf, 99%% ci=[%.3lf, %.3lf]" ENDCOLOR,
+                round_trip_str[g_pApp->m_const_params.full_rtt], usecAvarage,
+                stdDev.toDecimalUsec(), mad.toDecimalUsec(), coefficientOfVariance, standardError, lowerInterval, upperInterval);
 
-        /* Display ERROR statistic */
+        /* Display ERROR statistic
+         */
         bool isColor =
             (g_pPacketTimes->getDroppedCount(SERVER_NO) || g_pPacketTimes->getDupCount(SERVER_NO) ||
              g_pPacketTimes->getOooCount(SERVER_NO));
