@@ -163,6 +163,7 @@ public:
 }
 
 //------------------------------------------------------------------------------
+// Mean Absolute Deviation
 /*static*/ TicksDuration TicksDuration::mad(TicksDuration *pArr, size_t size) {
     if (size <= 1) return TICKS0;
 
@@ -184,4 +185,52 @@ public:
 
     double mad = distanceToAvgSummed / size;
     return TicksDuration(ticks_t(mad), true);
+}
+
+//------------------------------------------------------------------------------
+/*static*/ TicksDuration TicksDuration::getMedian(TicksDuration *pArr, size_t size) {
+    TicksDuration median(0);
+    sort(pArr, size);
+
+    if(size % 2 == 1) {
+        median = pArr[size/2];
+    } else {
+        median = (pArr[size/2 - 1] + pArr[size/2])/2;
+    }
+    return median;
+}
+
+//------------------------------------------------------------------------------
+// Median Absolute Deviation
+/*static*/ TicksDuration TicksDuration::medianad(TicksDuration *pArr, size_t size) {
+    if (size <= 1) return TICKS0;
+
+    TicksDuration median = TicksDuration::getMedian(pArr, size);
+    TicksDuration *deviationsFromMedian = new TicksDuration[size];
+    double scaleToConsistentEstimatorForStdDev = 1.48260221851; // For details, see https://en.wikipedia.org/wiki/Median_absolute_deviation#Relation_to_standard_deviation
+
+    for (size_t i = 0; i < size; i++) {
+        if(pArr[i] < median) {
+            deviationsFromMedian[i] = median - pArr[i];
+        } else {
+            deviationsFromMedian[i] = pArr[i] - median;
+        }
+    }
+    median = TicksDuration::getMedian(deviationsFromMedian, size);
+
+    return TicksDuration(ticks_t(median.m_ticks * scaleToConsistentEstimatorForStdDev), true);
+}
+
+//------------------------------------------------------------------------------
+// Semi-Interquartile Range
+/*static*/ TicksDuration TicksDuration::siqr(TicksDuration *sortedpArr, size_t size) {
+    if (size <= 1) return TICKS0;
+
+    int p75Index = (int)(0.5 + .75 * size) - 1;
+    int p25Index = (int)(0.5 + .25 * size) - 1;
+    TicksDuration p75 = sortedpArr[p75Index];
+    TicksDuration p25 = sortedpArr[p25Index];
+
+    TicksDuration siqr = (p75 - p25)/2;
+    return siqr;
 }

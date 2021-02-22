@@ -679,6 +679,12 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
           "comes with -m <size>, randomly change the messages size in range: <size> +- <N>." },
         { OPT_DATA_INTEGRITY,                AOPT_NOARG,                    aopt_set_literal(0),
           aopt_set_string("data-integrity"), "Perform data integrity test." },
+        { OPT_CI_SIG_LVL,
+          AOPT_OPTARG,
+          aopt_set_literal(0),
+          aopt_set_string("ci_sig_level"),
+          "Normal confidence interval signicance level for stat reported. Values are between 0 and 100 "
+          "exclusive (default 99). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
 
@@ -889,6 +895,25 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                 s_user_params.data_integrity = true;
             } else {
                 log_msg("--data-integrity conflicts with -b option");
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, OPT_CI_SIG_LVL)) {
+            const char *optarg = aopt_value(self_obj, OPT_CI_SIG_LVL);
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value >= 100) {
+                    log_msg("'--%s' Invalid Significance level: %s",
+                        aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL), optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    s_user_params.ci_significance_level = value;
+                }
+            } else {
+                log_msg("'--%s' Invalid value",
+                    aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL));
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
@@ -2191,6 +2216,7 @@ void set_defaults() {
     s_user_params.client_bind_info.sin_family = AF_INET;
     s_user_params.client_bind_info.sin_addr.s_addr = INADDR_ANY;
     s_user_params.client_bind_info.sin_port = 0;
+    s_user_params.ci_significance_level = DEFAULT_CI_SIG_LEVEL;
     s_user_params.mode = MODE_SERVER;
     s_user_params.measurement = TIME_BASED;
     s_user_params.packetrate_stats_print_ratio = 0;

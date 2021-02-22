@@ -297,6 +297,36 @@ const char *aopt_value(const AOPT_OBJECT *aopt_obj, int key) {
     return value;
 }
 
+const AOPT_DESC *aopt_get_desc(const AOPT_DESC *aopt_desc, int key) {
+    if (key == 0) {
+        log_err("Not a valid key for aopt");
+        return NULL;
+    }
+
+    const AOPT_DESC *desc = NULL;
+    int i = 0;
+
+    while(aopt_desc[i].key != 0) {
+        if(aopt_desc[i].key == key) {
+            desc = &aopt_desc[i];
+            break;
+        }
+        i++;
+    }
+
+    return desc;
+}
+
+const char *aopt_get_long_name(const AOPT_DESC *aopt_desc, int key) {
+    if (key == 0) {
+        log_err("Not a valid key for aopt");
+        return NULL;
+    }
+
+    return *aopt_get_desc(aopt_desc, key)->longs;
+}
+
+
 /**
  * aopt_help
  *
