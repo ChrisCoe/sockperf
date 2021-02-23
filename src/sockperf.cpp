@@ -395,6 +395,12 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
           aopt_set_literal('r'),
           aopt_set_string("range"),
           "comes with -m <size>, randomly change the messages size in range: <size> +- <N>." },
+        { OPT_CI_SIG_LVL,
+          AOPT_OPTARG,
+          aopt_set_literal(0),
+          aopt_set_string("ci_sig_level"),
+          "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
+          "exclusive (default 99). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
 
@@ -587,6 +593,25 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
                 }
             } else {
                 log_msg("'-%c' Invalid value", 'r');
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, OPT_CI_SIG_LVL)) {
+            const char *optarg = aopt_value(self_obj, OPT_CI_SIG_LVL);
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value >= 100) {
+                    log_msg("'--%s' Invalid Significance level: %s",
+                        aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL), optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    s_user_params.ci_significance_level = value;
+                }
+            } else {
+                log_msg("'--%s' Invalid value",
+                    aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL));
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
@@ -1250,6 +1275,12 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
         { OPT_PLAYBACK_DATA,                                         AOPT_ARG,
           aopt_set_literal(0),                                       aopt_set_string("data-file"),
           "Pre-prepared CSV file with timestamps and message sizes." },
+        { OPT_CI_SIG_LVL,
+          AOPT_OPTARG,
+          aopt_set_literal(0),
+          aopt_set_string("ci_sig_level"),
+          "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
+          "exclusive (default 99). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
 
@@ -1318,6 +1349,25 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
                 }
             } else {
                 log_msg("'-%d' Invalid value", OPT_REPLY_EVERY);
+                rc = SOCKPERF_ERR_BAD_ARGUMENT;
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, OPT_CI_SIG_LVL)) {
+            const char *optarg = aopt_value(self_obj, OPT_CI_SIG_LVL);
+            if (optarg) {
+                errno = 0;
+                int value = strtol(optarg, NULL, 0);
+                if (errno != 0 || value <= 0 || value >= 100) {
+                    log_msg("'--%s' Invalid Significance level: %s",
+                        aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL), optarg);
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                } else {
+                    s_user_params.ci_significance_level = value;
+                }
+            } else {
+                log_msg("'--%s' Invalid value",
+                    aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL));
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
