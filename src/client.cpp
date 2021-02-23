@@ -106,7 +106,6 @@ void printPercentiles(FILE *f, TicksDuration *sortedpLat, size_t size) {
                   (long unsigned)size, observationsInPercentile);
 
     log_msg_file2(f, "---> <MAX> observation = %8.3lf", sortedpLat[size - 1].toDecimalUsec());
-
     for (int i = 0; i < num; i++) {
         int index = (int)(0.5 + percentile[i] * size) - 1;
         if (index >= 0) {
