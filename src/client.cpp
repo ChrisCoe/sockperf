@@ -157,7 +157,7 @@ double NormalCDFInverse(double p) {
     }
 
     // Approximation function is only valid for (0 < p < .5)
-    // Extend to (0 < p < 1), by taking advantage of normal CDF inverse odd symmetry shape
+    // Extend to (0 < p < 1) by taking advantage of normal CDF inverse odd symmetry shape
     // Detailed explanation here: https://www.johndcook.com/blog/normal_cdf_inverse/#basic
     if (p < 0.5) {
         // F^-1(p) = - G^-1(p)
@@ -355,8 +355,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
             stdDev.toDecimalUsec(), mad.toDecimalUsec(), medianad.toDecimalUsec(), siqr.toDecimalUsec(),
             coefficientOfVariance, standardError, significanceLevel, lowerInterval, upperInterval);
 
-        /* Display ERROR statistic
-         */
+        /* Display ERROR statistic*/
+
         bool isColor =
             (g_pPacketTimes->getDroppedCount(SERVER_NO) || g_pPacketTimes->getDupCount(SERVER_NO) ||
              g_pPacketTimes->getOooCount(SERVER_NO));

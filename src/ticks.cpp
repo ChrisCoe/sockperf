@@ -29,7 +29,6 @@
 #define __STDC_LIMIT_MACROS // for INT64_MAX in __cplusplus
 
 #include "ticks.h"
-#include "defs.h"
 
 #include <string>
 #include <stdio.h>
@@ -175,23 +174,21 @@ public:
         ticks = (double)pArr[i].m_ticks;
         sum += ticks;
     }
-
     double avg = sum / size;
-
     for (size_t i = 0; i < size; i++) {
         ticks = (double)pArr[i].m_ticks;
         distanceToAvgSummed += abs(ticks - avg);
     }
-
     double mad = distanceToAvgSummed / size;
     return TicksDuration(ticks_t(mad), true);
 }
 
 //------------------------------------------------------------------------------
-/*static*/ TicksDuration TicksDuration::getMedian(TicksDuration *pArr, size_t size) {
+/*static*/ TicksDuration TicksDuration::median(TicksDuration *pArr, size_t size) {
+    if (size <= 1) return TICKS0;
     TicksDuration median(0);
-    sort(pArr, size);
 
+    sort(pArr, size);
     if(size % 2 == 1) {
         median = pArr[size/2];
     } else {
@@ -205,9 +202,11 @@ public:
 /*static*/ TicksDuration TicksDuration::medianad(TicksDuration *pArr, size_t size) {
     if (size <= 1) return TICKS0;
 
-    TicksDuration median = TicksDuration::getMedian(pArr, size);
+    TicksDuration median = TicksDuration::median(pArr, size);
     TicksDuration *deviationsFromMedian = new TicksDuration[size];
-    double scaleToConsistentEstimatorForStdDev = 1.48260221851; // For details, see https://en.wikipedia.org/wiki/Median_absolute_deviation#Relation_to_standard_deviation
+    // For details why we need 1/ppf(3/4) a.k.a. 1/NormalCDFInverse(3/4),
+    // see https://en.wikipedia.org/wiki/Median_absolute_deviation#Relation_to_standard_deviation
+    double scaleToConsistentEstimatorForStdDev = 1.48260221851;
 
     for (size_t i = 0; i < size; i++) {
         if(pArr[i] < median) {
@@ -216,8 +215,7 @@ public:
             deviationsFromMedian[i] = pArr[i] - median;
         }
     }
-    median = TicksDuration::getMedian(deviationsFromMedian, size);
-
+    median = TicksDuration::median(deviationsFromMedian, size);
     return TicksDuration(ticks_t(median.m_ticks * scaleToConsistentEstimatorForStdDev), true);
 }
 
@@ -230,7 +228,6 @@ public:
     int p25Index = (int)(0.5 + .25 * size) - 1;
     TicksDuration p75 = sortedpArr[p75Index];
     TicksDuration p25 = sortedpArr[p25Index];
-
     TicksDuration siqr = (p75 - p25)/2;
     return siqr;
 }

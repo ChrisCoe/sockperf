@@ -683,7 +683,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
           AOPT_OPTARG,
           aopt_set_literal(0),
           aopt_set_string("ci_sig_level"),
-          "Normal confidence interval signicance level for stat reported. Values are between 0 and 100 "
+          "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
           "exclusive (default 99). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
