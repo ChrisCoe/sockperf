@@ -355,7 +355,7 @@ public:
     static TicksDuration siqr(TicksDuration *pArr, size_t size);
 
     //------------------------------------------------------------------------------
-    static TicksDuration median(TicksDuration *pArr, size_t size);
+    static TicksDuration median(TicksDuration *pArr, size_t size, bool sortList);
 
 private:
     inline explicit TicksDuration(ticks_t _ticks, bool) : TicksBase(_ticks) {}

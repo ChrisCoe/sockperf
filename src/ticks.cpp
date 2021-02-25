@@ -184,12 +184,15 @@ public:
 }
 
 //------------------------------------------------------------------------------
-/*static*/ TicksDuration TicksDuration::median(TicksDuration *pArr, size_t size) {
+/*static*/ TicksDuration TicksDuration::median(TicksDuration *pArr, size_t size, bool sortList) {
     if (size <= 1) return TICKS0;
     TicksDuration median(0);
 
-    sort(pArr, size);
-    if(size % 2 == 1) {
+    // Avoid worst case for quicksort: sorting large list already sorted
+    if (sortList) {
+        sort(pArr, size);
+    }
+    if (size % 2 == 1) {
         median = pArr[size/2];
     } else {
         median = (pArr[size/2 - 1] + pArr[size/2])/2;
@@ -202,7 +205,7 @@ public:
 /*static*/ TicksDuration TicksDuration::medianad(TicksDuration *pArr, size_t size) {
     if (size <= 1) return TICKS0;
 
-    TicksDuration median = TicksDuration::median(pArr, size);
+    TicksDuration median = TicksDuration::median(pArr, size, false);
     TicksDuration *deviationsFromMedian = new TicksDuration[size];
     // For details why we need 1/ppf(3/4) a.k.a. 1/NormalCDFInverse(3/4),
     // see https://en.wikipedia.org/wiki/Median_absolute_deviation#Relation_to_standard_deviation
@@ -215,7 +218,7 @@ public:
             deviationsFromMedian[i] = pArr[i] - median;
         }
     }
-    median = TicksDuration::median(deviationsFromMedian, size);
+    median = TicksDuration::median(deviationsFromMedian, size, true);
     return TicksDuration(ticks_t(median.m_ticks * scaleToConsistentEstimatorForStdDev), true);
 }
 

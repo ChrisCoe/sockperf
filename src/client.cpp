@@ -68,7 +68,7 @@ void set_client_timer(struct itimerval *timer) {
 //------------------------------------------------------------------------------
 /*  set the timer on client to limit waiting based on [-n number-of-observations] parameter given by
     user and sampling data */
-void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
+void set_client_observation_timer(struct itimerval *timer, TicksTime testStart) {
     /*  Based off observation rate during sampling, estimate total run time.
         Using warmup as our sample includes a bias for higher latency, because the head of
         the test has less load and receiver has no recent cache. This works to our benefit
@@ -85,7 +85,7 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
     double sampleTimeSeconds = sampleTime.toDecimalUsec() / 1000000;    // secs
     double sampleSecObsRate = sampleTimeSeconds / sampleObservations;   // secs/obs
     double runTimeEstimate = sampleSecObsRate * totalObservations;      // (secs/obs)*obs = secs
-    double waitingCap = 1.5 * runTimeEstimate + 10; // Add leeway to process stats and write to file
+    double waitingCap = 1.5 * runTimeEstimate; // Add leeway to process stats and write to file
     log_msg("RunTime Estimate=%.3lf sec, Time out in %.3lf sec", runTimeEstimate, waitingCap);
 
     // Build timer
@@ -97,7 +97,7 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
 
 //------------------------------------------------------------------------------
 void printPercentiles(FILE *f, TicksDuration *sortedpLat, size_t size) {
-    double percentile[] = { 0.99999, 0.9999, 0.999, 0.99, 0.90, 0.75, 0.50, 0.25 };
+    const double percentile[] = { 0.99999, 0.9999, 0.999, 0.99, 0.90, 0.75, 0.50, 0.25 };
     int num = sizeof(percentile) / sizeof(percentile[0]);
     double observationsInPercentile = (double)size / 100;
 
@@ -142,8 +142,8 @@ double RationalApproximation(double t) {
     // Abramowitz and Stegun formula 26.2.23
     // with constants from here: https://arxiv.org/pdf/1002.0567.pdf, Section 3
     // Absolute value of error should be less than 8 e-5
-    double c[] = {2.653962002601684482, 1.561533700212080345, 0.061146735765196993};
-    double d[] = {1.904875182836498708, 0.454055536444233510, 0.009547745327068945};
+    const double c[] = {2.653962002601684482, 1.561533700212080345, 0.061146735765196993};
+    const double d[] = {1.904875182836498708, 0.454055536444233510, 0.009547745327068945};
     return t - ((c[2]*t + c[1])*t + c[0]) /
         (((d[2]*t + d[1])*t + d[0])*t + 1.0);
 }
@@ -333,13 +333,14 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
                       validRunTime.toDecimalUsec() / 1000000, (endValidSeqNo - startValidSeqNo + 1),
                       (uint64_t)counter);
 
+        TicksDuration::sort(pLat, counter);
+        TicksDuration *sortedpLat = &pLat[0]; // alias for pLat after being sorted
         TicksDuration avgRtt = counter ? sumRtt / (int)counter : TicksDuration::TICKS0;
         TicksDuration avgLatency = avgRtt / 2;
         TicksDuration stdDev = TicksDuration::stdDev(pLat, counter);
         TicksDuration mad = TicksDuration::mad(pLat, counter);
         TicksDuration medianad = TicksDuration::medianad(pLat, counter);
         TicksDuration siqr = TicksDuration::siqr(pLat, counter);
-        TicksDuration *sortedpLat = &pLat[0]; // alias for pLat after being sorted
         double usecAvarage = g_pApp->m_const_params.full_rtt ? avgRtt.toDecimalUsec() : avgLatency.toDecimalUsec();
         double coefficientOfVariance = stdDev.toDecimalUsec() / usecAvarage;
         double standardError = stdDev.toDecimalUsec() / sqrt(counter);
@@ -817,9 +818,9 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
             prevRxTime = rxTime;
             counterValid++;
 
-            // Set timer to limit waiting on total observations
+            // Set timer to limit waiting on observations based off warmup sample
             if(counterValid == warmupObservations && timer.it_value.tv_sec == 0) {
-                set_client_time_out_timer(&timer, testStart);
+                set_client_observation_timer(&timer, testStart);
                 if (os_set_duration_timer(timer, client_sig_handler)) {
                     exit_with_log("Failed setting test observation timer", SOCKPERF_ERR_FATAL);
                 }
@@ -827,6 +828,12 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
 
             if(counterValid == stopCounting) {
                 s_endTime.setNowNonInline();
+                // Disarm timer
+                timer.it_value.tv_sec = 0;
+                timer.it_value.tv_usec = 0;
+                if (setitimer(ITIMER_REAL, &timer, NULL)) {
+                    log_err("ERROR: setitimer() failed when disarming");
+                }
                 log_msg("Test end (finished observation count)");
                 g_b_exit = true;
             }
