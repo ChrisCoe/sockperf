@@ -34,6 +34,7 @@
 #include "switches.h"
 
 #include <math.h>
+#include <map>
 
 TicksTime s_startTime, s_endTime;
 
@@ -93,6 +94,155 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
     timer->it_value.tv_usec = 0;
     timer->it_interval.tv_sec = 0;
     timer->it_interval.tv_usec = 0;
+}
+
+//------------------------------------------------------------------------------
+// Store delta frquencies between bins starting from upper tail. Goal is minimize file size here
+void storeH2(int bin_size, int lower_range, int upper_range, int outside_range_count,
+                std::map<int, int> &active_bins) {
+    std::map<int, int>::iterator itr;
+    //print TODO machine like (style 2)
+    FILE *f2 = fopen("histogram2.csv", "w");
+
+    fprintf(f2, "------------------------------\n");
+    fprintf(f2, "Start histogram format\n");
+    fprintf(f2, "------------------------------\n");
+    fprintf(f2, "bin-size=%d, range=[%d, %d], out-of-range-count=%d\n", bin_size,
+            lower_range, upper_range, outside_range_count);
+    fprintf(f2, "bin-start-edge (usec), delta frequency starting from tail\n");
+    // handle case when too small the list
+    int prevFreq = 0;
+    int currDiff = 0;
+    for(auto itr = active_bins.rbegin(); itr != active_bins.rend(); ++itr) {
+        // int startBinEdge = itr->first * bin_size + lower_range;
+        int bin_index = itr->first;
+        int frequency = itr->second;
+        currDiff = frequency - prevFreq;
+        fprintf(f2, "%d, %d\n", bin_index, currDiff);
+        prevFreq = frequency;
+    }
+    fprintf(f2, "------------------------------\n");
+}
+
+
+//------------------------------------------------------------------------------
+// Store frequencies for each bin in range. 
+void storeH1(int bin_size, int lower_range, int upper_range, int outside_range_count,
+                std::map<int, int> &active_bins) {
+    std::map<int, int>::iterator itr;
+    FILE *f = fopen("histogram.csv", "w");
+
+    fprintf(f, "------------------------------\n");
+    fprintf(f, "histogram was built using the following parameters: " 
+            "--h_bin_size_us=%d --h_lower_range_us=%d --h_upper_range_us=%d\n",
+            (int)g_pApp->m_const_params.histogram_bin_size,
+            (int)g_pApp->m_const_params.histogram_lower_range,
+            (int)g_pApp->m_const_params.histogram_upper_range);
+    fprintf(f, "------------------------------\n");
+    fprintf(f, "bin-size=%d, range=[%d, %d], outliers-count=%d\n", bin_size,
+            lower_range, upper_range, outside_range_count);
+    fprintf(f, "bin-start-edge (usec), frequency\n");
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        int startBinEdge = itr->first * bin_size + lower_range;
+        int frequency = itr->second;
+        fprintf(f, "%d, %d\n",startBinEdge, frequency);
+    }
+    fprintf(f, "------------------------------\n");
+}
+
+//------------------------------------------------------------------------------
+// Display histogram on terminal to fit on terminal screen (frequency rounded up)
+void printHistogram(int bin_size, int lower_range, int upper_range, int outside_range_count,
+                std::map<int, int> &active_bins) {
+    std::map<int, int>::iterator itr;
+    int max_frequency = 0;
+    int left_outlier_bin_index = 0;
+    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size; // TODO: coello, might need to adjust
+
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        int curr_frequency = itr->second;
+        if (curr_frequency > max_frequency) {
+            max_frequency = curr_frequency;
+        }
+    }
+
+    std::string prefix_to_histogram_display ("sockperf: bin XXX-XXX");
+    int terminal_width = 0;
+#ifndef WIN32
+    struct winsize size;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+    terminal_width = size.ws_col;
+#else
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE),&csbi);
+    terminal_width = csbi.dwSize.X;
+#endif
+    int max_display_width = terminal_width - prefix_to_histogram_display.length();
+    int scaling_unit = (max_frequency + max_display_width - 1)/max_display_width; // round up
+
+    // TODO: coello, deal with small samples like one
+    if (scaling_unit == 1) {
+        log_msg("[Histogram] Display to scale");
+    } else {
+        log_msg("[Histogram] Display scaled to fit on screen (Key: '#' = up to %d samples)", scaling_unit);
+    }
+
+    int startBinEdge = 0;
+    int frequency = 0;
+    int frequency_scaled_down_count = 0;
+    int binEnd = 0; // TODO: coello, rename to match with other name start';
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        frequency = itr->second;
+        frequency_scaled_down_count = (frequency + scaling_unit - 1) / scaling_unit; // round up
+        startBinEdge = (itr->first - 1) * bin_size + lower_range; 
+        binEnd = startBinEdge + bin_size;
+        //printf("This is");
+        if (itr->first == left_outlier_bin_index) {
+            log_msg("bin  0-%d " MAGNETA "%s (outliers)" ENDCOLOR, lower_range,
+                std::string(frequency_scaled_down_count, '#').c_str());
+        } else if (itr->first == right_outlier_bin_index) {
+            log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, startBinEdge, max_frequency,
+                std::string(frequency_scaled_down_count, '#').c_str());
+        } else {
+            log_msg("bin %d-%d %s",startBinEdge, binEnd, std::string(frequency_scaled_down_count, '#').c_str());
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+void makeHistogram(TicksDuration *sortedpLat, size_t size) {
+    int lower_range = s_user_params.histogram_lower_range;
+    int upper_range = s_user_params.histogram_upper_range;
+    int bin_size = s_user_params.histogram_bin_size; // microseconds
+    int outside_range_count = 0;
+    int left_outlier_bin_index = 0;
+    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size; // TODO: coello, might need to adjust
+    std::map<int, int> active_bins;
+    size_t i = 0;
+
+    // build histogram
+    for(; i < size; i++) {
+        double value = sortedpLat[i].toDecimalUsec();
+        if(value < lower_range) {
+            active_bins[left_outlier_bin_index]++;
+            outside_range_count++;
+            continue;
+        }
+        if(value > upper_range) {
+            active_bins[right_outlier_bin_index]++;
+            outside_range_count++;
+            continue;
+        }
+        int binIndex = 1 + (value - lower_range) / bin_size;
+        active_bins[binIndex]++;
+    }
+
+    printHistogram(bin_size, lower_range, upper_range, outside_range_count, active_bins);
+    // TODO: Only one function would end up being used
+    storeH1(bin_size, lower_range, upper_range, outside_range_count, active_bins);
+    // storeH2(bin_size, lower_range, upper_range, outside_range_count, active_bins);
+
+    active_bins.clear();
 }
 
 //------------------------------------------------------------------------------
@@ -370,6 +520,10 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
         if (usecAvarage) print_average_results(usecAvarage);
 
         printPercentiles(f, sortedpLat, counter);
+
+        if(s_user_params.b_histogram) {
+            makeHistogram(sortedpLat, counter);
+        }
 
         dumpFullLog(SERVER_NO, pFullLog, counter);
     }
