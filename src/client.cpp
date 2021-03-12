@@ -34,6 +34,7 @@
 #include "switches.h"
 
 #include <math.h>
+#include <map>
 
 TicksTime s_startTime, s_endTime;
 
@@ -68,7 +69,7 @@ void set_client_timer(struct itimerval *timer) {
 //------------------------------------------------------------------------------
 /*  set the timer on client to limit waiting based on [-n number-of-observations] parameter given by
     user and sampling data */
-void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
+void set_client_observation_timer(struct itimerval *timer, TicksTime testStart) {
     /*  Based off observation rate during sampling, estimate total run time.
         Using warmup as our sample includes a bias for higher latency, because the head of
         the test has less load and receiver has no recent cache. This works to our benefit
@@ -85,7 +86,7 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
     double sampleTimeSeconds = sampleTime.toDecimalUsec() / 1000000;    // secs
     double sampleSecObsRate = sampleTimeSeconds / sampleObservations;   // secs/obs
     double runTimeEstimate = sampleSecObsRate * totalObservations;      // (secs/obs)*obs = secs
-    double waitingCap = 1.5 * runTimeEstimate + 10; // Add leeway to process stats and write to file
+    double waitingCap = 1.5 * runTimeEstimate; // Add leeway to process stats and write to file
     log_msg("RunTime Estimate=%.3lf sec, Time out in %.3lf sec", runTimeEstimate, waitingCap);
 
     // Build timer
@@ -96,8 +97,161 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
 }
 
 //------------------------------------------------------------------------------
+int getLeftOutlierBinIndexReserved() {
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+int getRightOutlierBinIndexReserved() {
+    int lower_range = s_user_params.histogram_lower_range;
+    int upper_range = s_user_params.histogram_upper_range;
+    int bin_size = s_user_params.histogram_bin_size;
+    /*
+        Normal bin index for value is calculated with: 1 + (value - lower_range)/bin_size
+        Right outliers all fall in the same bin which is one more than the last
+        bin within range.
+    */
+    return 2 + (upper_range - lower_range)/bin_size;
+}
+
+//------------------------------------------------------------------------------
+/*  Store frequencies for each non-empty bin. All bins include only start (inclusive) as
+    end (exclusive) can be inferred by adding bin size. Outlier bins include both
+    start and end of bin as size depends on outliers. */
+void storeHistogram(int bin_size, int lower_range, int upper_range,
+                std::map<int, int> &active_bins, int min_value, int max_value) {
+    int startBinEdge = 0;
+    int frequency = 0;
+    std::map<int, int>::iterator itr;
+    FILE *f = fopen("histogram.csv", "w");
+
+    fprintf(f, "------------------------------\n");
+    fprintf(f, "histogram was built using the following parameters: "
+            "--h_bin_size_us=%d --h_lower_range_us=%d --h_upper_range_us=%d\n",
+            (int)g_pApp->m_const_params.histogram_bin_size,
+            (int)g_pApp->m_const_params.histogram_lower_range,
+            (int)g_pApp->m_const_params.histogram_upper_range);
+    fprintf(f, "------------------------------\n");
+    fprintf(f, "bin (usec), frequency\n");
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        frequency = itr->second;
+        startBinEdge = (itr->first - 1) * bin_size + lower_range;
+        if (itr->first == getLeftOutlierBinIndexReserved()) {
+            fprintf(f, "%d-%d,\t\t%d\n", min_value, lower_range, frequency);
+        } else if (itr->first == getRightOutlierBinIndexReserved()) {
+            startBinEdge = upper_range;
+            int overflow_remainder = (upper_range - lower_range) % bin_size;
+            if(overflow_remainder != 0) {
+                startBinEdge += bin_size - overflow_remainder;
+            }
+            fprintf(f, "%d-%d,\t\t%d\n", startBinEdge, max_value, frequency);
+        } else {
+            fprintf(f, "%d,\t\t%d\n",startBinEdge, frequency);
+        }
+    }
+    fprintf(f, "------------------------------\n");
+}
+
+//------------------------------------------------------------------------------
+/*  Display histogram to fit on terminal screen width (frequency rounded up) */
+void printAndStoreHistogram(int bin_size, int lower_range, int upper_range,
+                std::map<int, int> &active_bins, int min_value, int max_value) {
+    int max_frequency = 0;
+    int terminal_width = 0;
+    int scaling_unit = 0;
+    int max_display_width = 0;
+    std::string prefix_to_histogram_display ("sockperf: bin XXX-XXX");
+    std::map<int, int>::iterator itr;
+
+    // Scale to terminal
+#ifndef WIN32
+    struct winsize size;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+    terminal_width = size.ws_col;
+#else
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE),&csbi);
+    terminal_width = csbi.dwSize.X;
+#endif
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        int curr_frequency = itr->second;
+        if (curr_frequency > max_frequency) {
+            max_frequency = curr_frequency;
+        }
+    }
+    max_display_width = terminal_width - prefix_to_histogram_display.length();
+    scaling_unit = (max_frequency + max_display_width - 1)/max_display_width; // round up
+
+    int startBinEdge = 0;
+    int endBinEdge = 0;
+    int frequency = 0;
+    int frequency_scaled_down_count = 0;
+
+    if (scaling_unit == 1) {
+        log_msg("[Histogram] Display to scale");
+    } else {
+        log_msg("[Histogram] Display scaled to fit on screen (Key: '#' = up to %d samples)", scaling_unit);
+    }
+    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
+        frequency = itr->second;
+        frequency_scaled_down_count = (frequency + scaling_unit - 1) / scaling_unit; // round up
+        startBinEdge = (itr->first - 1) * bin_size + lower_range;
+        endBinEdge = startBinEdge + bin_size;
+        if (itr->first == getLeftOutlierBinIndexReserved()) {
+            log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, min_value, lower_range,
+                std::string(frequency_scaled_down_count, '#').c_str());
+        } else if (itr->first == getRightOutlierBinIndexReserved()) {
+            startBinEdge = upper_range;
+            int overflow_remainder = (upper_range - lower_range) % bin_size;
+            if(overflow_remainder != 0) {
+                startBinEdge += bin_size - overflow_remainder;
+            }
+            log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, startBinEdge, max_value,
+                std::string(frequency_scaled_down_count, '#').c_str());
+        } else {
+            log_msg("bin %d-%d %s",startBinEdge, endBinEdge, std::string(frequency_scaled_down_count, '#').c_str());
+        }
+    }
+
+    storeHistogram(bin_size, lower_range, upper_range, active_bins, min_value, max_value);
+    log_msg("See histogram.csv for full data");
+}
+
+//------------------------------------------------------------------------------
+/* Sparce fixed bin histogram with outlier bins outside given range */
+void makeHistogram(TicksDuration *sortedpLat, size_t size) {
+    int lower_range = s_user_params.histogram_lower_range;
+    int upper_range = s_user_params.histogram_upper_range;
+    int bin_size = s_user_params.histogram_bin_size;
+    int left_outlier_bin_index = getLeftOutlierBinIndexReserved();
+    int right_outlier_bin_index = getRightOutlierBinIndexReserved();
+    int min_value = sortedpLat[0].toDecimalUsec();
+    int max_value = sortedpLat[size - 1].toDecimalUsec();
+    std::map<int, int> active_bins;
+    size_t i = 0;
+
+    // build histogram
+    for(; i < size; i++) {
+        double value = sortedpLat[i].toDecimalUsec();
+        if(value < lower_range) {
+            active_bins[left_outlier_bin_index]++;
+            continue;
+        }
+        if(value >= upper_range) {
+            active_bins[right_outlier_bin_index]++;
+            continue;
+        }
+        int binIndex = 1 + (value - lower_range) / bin_size;
+        active_bins[binIndex]++;
+    }
+
+    printAndStoreHistogram(bin_size, lower_range, upper_range, active_bins, min_value, max_value);
+    active_bins.clear();
+}
+
+//------------------------------------------------------------------------------
 void printPercentiles(FILE *f, TicksDuration *sortedpLat, size_t size) {
-    double percentile[] = { 0.99999, 0.9999, 0.999, 0.99, 0.90, 0.75, 0.50, 0.25 };
+    const double percentile[] = { 0.99999, 0.9999, 0.999, 0.99, 0.90, 0.75, 0.50, 0.25 };
     int num = sizeof(percentile) / sizeof(percentile[0]);
     double observationsInPercentile = (double)size / 100;
 
@@ -142,8 +296,8 @@ double RationalApproximation(double t) {
     // Abramowitz and Stegun formula 26.2.23
     // with constants from here: https://arxiv.org/pdf/1002.0567.pdf, Section 3
     // Absolute value of error should be less than 8 e-5
-    double c[] = {2.653962002601684482, 1.561533700212080345, 0.061146735765196993};
-    double d[] = {1.904875182836498708, 0.454055536444233510, 0.009547745327068945};
+    const double c[] = {2.653962002601684482, 1.561533700212080345, 0.061146735765196993};
+    const double d[] = {1.904875182836498708, 0.454055536444233510, 0.009547745327068945};
     return t - ((c[2]*t + c[1])*t + c[0]) /
         (((d[2]*t + d[1])*t + d[0])*t + 1.0);
 }
@@ -333,13 +487,14 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
                       validRunTime.toDecimalUsec() / 1000000, (endValidSeqNo - startValidSeqNo + 1),
                       (uint64_t)counter);
 
+        TicksDuration::sort(pLat, counter);
+        TicksDuration *sortedpLat = &pLat[0]; // alias for pLat after being sorted
         TicksDuration avgRtt = counter ? sumRtt / (int)counter : TicksDuration::TICKS0;
         TicksDuration avgLatency = avgRtt / 2;
         TicksDuration stdDev = TicksDuration::stdDev(pLat, counter);
         TicksDuration mad = TicksDuration::mad(pLat, counter);
         TicksDuration medianad = TicksDuration::medianad(pLat, counter);
         TicksDuration siqr = TicksDuration::siqr(pLat, counter);
-        TicksDuration *sortedpLat = &pLat[0]; // alias for pLat after being sorted
         double usecAvarage = g_pApp->m_const_params.full_rtt ? avgRtt.toDecimalUsec() : avgLatency.toDecimalUsec();
         double coefficientOfVariance = stdDev.toDecimalUsec() / usecAvarage;
         double standardError = stdDev.toDecimalUsec() / sqrt(counter);
@@ -370,6 +525,8 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
         if (usecAvarage) print_average_results(usecAvarage);
 
         printPercentiles(f, sortedpLat, counter);
+
+        if(s_user_params.b_histogram) makeHistogram(sortedpLat, counter);
 
         dumpFullLog(SERVER_NO, pFullLog, counter);
     }
@@ -817,9 +974,9 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
             prevRxTime = rxTime;
             counterValid++;
 
-            // Set timer to limit waiting on total observations
+            // Set timer to limit waiting on observations based off warmup sample
             if(counterValid == warmupObservations && timer.it_value.tv_sec == 0) {
-                set_client_time_out_timer(&timer, testStart);
+                set_client_observation_timer(&timer, testStart);
                 if (os_set_duration_timer(timer, client_sig_handler)) {
                     exit_with_log("Failed setting test observation timer", SOCKPERF_ERR_FATAL);
                 }
@@ -827,6 +984,12 @@ void Client<IoType, SwitchDataIntegrity, SwitchActivityInfo, SwitchCycleDuration
 
             if(counterValid == stopCounting) {
                 s_endTime.setNowNonInline();
+                // Disarm timer
+                timer.it_value.tv_sec = 0;
+                timer.it_value.tv_usec = 0;
+                if (setitimer(ITIMER_REAL, &timer, NULL)) {
+                    log_err("ERROR: setitimer() failed when disarming");
+                }
                 log_msg("Test end (finished observation count)");
                 g_b_exit = true;
             }
