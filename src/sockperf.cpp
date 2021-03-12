@@ -401,6 +401,26 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
           aopt_set_string("ci_sig_level"),
           "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
           "exclusive (default 99). " },
+        { OPT_HISTOGRAM,
+          AOPT_NOARG,
+          aopt_set_literal(0),
+          aopt_set_string("histogram"),
+          "Build histogram of latencies. " },
+        { OPT_HISTOGRAM_LOWER_RANGE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_lower_range_us"),
+          "Lower range in microseconds of interest for latency histogram (default 1). " },
+        { OPT_HISTOGRAM_UPPER_RANGE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_upper_range_us"),
+          "Upper range of interest for latency histogram (default 2 secs). " },
+        { OPT_HISTOGRAM_BIN_SIZE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_bin_size_us"),
+          "Bin size in microseconds for latency histogram (default 10). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
 
@@ -615,6 +635,82 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
+
+        if (!rc && aopt_check(self_obj, OPT_HISTOGRAM)) {
+            s_user_params.b_histogram = true;
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_LOWER_RANGE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_LOWER_RANGE);
+                if (optarg) {
+                    errno = 0;
+                    int value = strtol(optarg, NULL, 0);
+                    if (errno != 0 || value < 0) {
+                        log_msg("'--%s' Invalid lower range for histogram: %s",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_lower_range = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_UPPER_RANGE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_UPPER_RANGE);
+                if (optarg) {
+                    errno = 0;
+                    uint32_t value = strtol(optarg, NULL, 0);
+                    if (errno != 0 || value <= 0 || value < s_user_params.histogram_lower_range) {
+                        log_msg("'--%s' Invalid upper range for histogram: %s",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_upper_range = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_BIN_SIZE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_BIN_SIZE);
+                if (optarg) {
+                    errno = 0;
+                    uint32_t value = strtol(optarg, NULL, 0);
+                    // TODO: coello, check this range logic
+                    uint32_t range = s_user_params.histogram_upper_range - s_user_params.histogram_lower_range;
+
+                    if (errno != 0 || value <= 0 || value > range) {
+                        printf("tiny value: %" PRIu32 "\n", value);
+                        log_msg("'--%s' Invalid bin size for histogram: %s.",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_bin_size = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, OPT_HISTOGRAM) == 0 &&
+            ( aopt_check(self_obj, OPT_HISTOGRAM_LOWER_RANGE) ||
+              aopt_check(self_obj, OPT_HISTOGRAM_UPPER_RANGE) ||
+              aopt_check(self_obj, OPT_HISTOGRAM_BIN_SIZE) )  ) {
+            log_msg("Optional arguments '--%s' '--%s' '--%s' for histogram require flag '--%s'",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM) );
+            rc = SOCKPERF_ERR_BAD_ARGUMENT;
+        }
     }
 
     if (rc) {
@@ -710,7 +806,7 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
           aopt_set_string("ci_sig_level"),
           "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
           "exclusive (default 99). " },
-        { OPT_HISTOGRAM, // TODO: coello, remember to apply this parser to all modes when done testing
+        { OPT_HISTOGRAM,
           AOPT_NOARG,
           aopt_set_literal(0),
           aopt_set_string("histogram"),
@@ -1038,7 +1134,6 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                         aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM) );
             rc = SOCKPERF_ERR_BAD_ARGUMENT;
         }
-
     }
 
     if (rc) {
@@ -1378,6 +1473,26 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
           aopt_set_string("ci_sig_level"),
           "Normal confidence interval significance level for stat reported. Values are between 0 and 100 "
           "exclusive (default 99). " },
+        { OPT_HISTOGRAM,
+          AOPT_NOARG,
+          aopt_set_literal(0),
+          aopt_set_string("histogram"),
+          "Build histogram of latencies. " },
+        { OPT_HISTOGRAM_LOWER_RANGE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_lower_range_us"),
+          "Lower range in microseconds of interest for latency histogram (default 1). " },
+        { OPT_HISTOGRAM_UPPER_RANGE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_upper_range_us"),
+          "Upper range of interest for latency histogram (default 2 secs). " },
+        { OPT_HISTOGRAM_BIN_SIZE,
+          AOPT_ARG,
+          aopt_set_literal(0),
+          aopt_set_string("h_bin_size_us"),
+          "Bin size in microseconds for latency histogram (default 10). " },
         { 0, AOPT_NOARG, aopt_set_literal(0), aopt_set_string(NULL), NULL }
     };
 
@@ -1467,6 +1582,82 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
                     aopt_get_long_name(self_opt_desc, OPT_CI_SIG_LVL));
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
+        }
+    
+        if (!rc && aopt_check(self_obj, OPT_HISTOGRAM)) {
+            s_user_params.b_histogram = true;
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_LOWER_RANGE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_LOWER_RANGE);
+                if (optarg) {
+                    errno = 0;
+                    int value = strtol(optarg, NULL, 0);
+                    if (errno != 0 || value < 0) {
+                        log_msg("'--%s' Invalid lower range for histogram: %s",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_lower_range = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_UPPER_RANGE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_UPPER_RANGE);
+                if (optarg) {
+                    errno = 0;
+                    uint32_t value = strtol(optarg, NULL, 0);
+                    if (errno != 0 || value <= 0 || value < s_user_params.histogram_lower_range) {
+                        log_msg("'--%s' Invalid upper range for histogram: %s",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_upper_range = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+
+            if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_BIN_SIZE)) {
+                const char *optarg = aopt_value(self_obj, OPT_HISTOGRAM_BIN_SIZE);
+                if (optarg) {
+                    errno = 0;
+                    uint32_t value = strtol(optarg, NULL, 0);
+                    // TODO: coello, check this range logic
+                    uint32_t range = s_user_params.histogram_upper_range - s_user_params.histogram_lower_range;
+
+                    if (errno != 0 || value <= 0 || value > range) {
+                        printf("tiny value: %" PRIu32 "\n", value);
+                        log_msg("'--%s' Invalid bin size for histogram: %s.",
+                            aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE), optarg);
+                        rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                    } else {
+                        s_user_params.histogram_bin_size = value;
+                    }
+                } else {
+                    log_msg("'--%s' Invalid value",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE));
+                    rc = SOCKPERF_ERR_BAD_ARGUMENT;
+                }
+            }
+        }
+
+        if (!rc && aopt_check(self_obj, OPT_HISTOGRAM) == 0 &&
+            ( aopt_check(self_obj, OPT_HISTOGRAM_LOWER_RANGE) ||
+              aopt_check(self_obj, OPT_HISTOGRAM_UPPER_RANGE) ||
+              aopt_check(self_obj, OPT_HISTOGRAM_BIN_SIZE) )  ) {
+            log_msg("Optional arguments '--%s' '--%s' '--%s' for histogram require flag '--%s'",
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_LOWER_RANGE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_UPPER_RANGE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM_BIN_SIZE),
+                        aopt_get_long_name(self_opt_desc, OPT_HISTOGRAM) );
+            rc = SOCKPERF_ERR_BAD_ARGUMENT;
         }
     }
 

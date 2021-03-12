@@ -97,74 +97,16 @@ void set_client_time_out_timer(struct itimerval *timer, TicksTime testStart) {
 }
 
 //------------------------------------------------------------------------------
-// Store delta frquencies between bins starting from upper tail. Goal is minimize file size here
-void storeH2(int bin_size, int lower_range, int upper_range, int outside_range_count,
-                std::map<int, int> &active_bins) {
-    std::map<int, int>::iterator itr;
-    //print TODO machine like (style 2)
-    FILE *f2 = fopen("histogram2.csv", "w");
-
-    fprintf(f2, "------------------------------\n");
-    fprintf(f2, "Start histogram format\n");
-    fprintf(f2, "------------------------------\n");
-    fprintf(f2, "bin-start-edge (usec), delta frequency starting from tail\n");
-    // handle case when too small the list
-    int prevFreq = 0;
-    int currDiff = 0;
-    for(auto itr = active_bins.rbegin(); itr != active_bins.rend(); ++itr) {
-        // int startBinEdge = itr->first * bin_size + lower_range;
-        int bin_index = itr->first;
-        int frequency = itr->second;
-        currDiff = frequency - prevFreq;
-        fprintf(f2, "%d, %d\n", bin_index, currDiff);
-        prevFreq = frequency;
-    }
-    fprintf(f2, "------------------------------\n");
-}
-
-
-//------------------------------------------------------------------------------
-/*  Store frequencies for each bin. Outlier bins include start (inclusive) and end (exclusive) of bin.
+/*  Display histogram to fit on terminal screen (frequency rounded up)
+    Store frequencies for each non-empty bin. Outlier bins include start (inclusive) and end (exclusive) of bin
     All other bins only include start as end can be inferred by adding bin size.
-
 */
-void storeH1(int bin_size, int lower_range, int upper_range, int outside_range_count,
-                std::map<int, int> &active_bins, int min_value, int max_value) {
-    int left_outlier_bin_index = 0; // TODO: coello, these 2 values should be constants somewhere, maybe even passed in
-    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size;
-
-    std::map<int, int>::iterator itr;
-    FILE *f = fopen("histogram.csv", "w");
-
-    fprintf(f, "------------------------------\n");
-    fprintf(f, "histogram was built using the following parameters: " 
-            "--h_bin_size_us=%d --h_lower_range_us=%d --h_upper_range_us=%d\n",
-            (int)g_pApp->m_const_params.histogram_bin_size,
-            (int)g_pApp->m_const_params.histogram_lower_range,
-            (int)g_pApp->m_const_params.histogram_upper_range);
-    fprintf(f, "------------------------------\n");
-    fprintf(f, "bin (usec), frequency\n");
-    for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
-        int frequency = itr->second;
-        if (itr->first == left_outlier_bin_index) {
-            fprintf(f, "%d, %d\n", min_value, frequency);
-        } else if (itr->first == right_outlier_bin_index) {
-            fprintf(f, "%d, %d\n", max_value, frequency);
-        } 
-        int startBinEdge = itr->first * bin_size + lower_range;
-        fprintf(f, "%d, %d\n",startBinEdge, frequency);
-    }
-    fprintf(f, "------------------------------\n");
-}
-
-//------------------------------------------------------------------------------
-// Display histogram on terminal to fit on terminal screen (frequency rounded up)
-void printAndStoreHistogram(int bin_size, int lower_range, int upper_range, int outside_range_count,
+void printAndStoreHistogram(int bin_size, int lower_range, int upper_range,
                 std::map<int, int> &active_bins, int min_value, int max_value) {
     std::map<int, int>::iterator itr;
     int max_frequency = 0;
     int left_outlier_bin_index = 0;
-    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size; // +1 to avoid 
+    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size;
 
     for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
         int curr_frequency = itr->second;
@@ -205,30 +147,30 @@ void printAndStoreHistogram(int bin_size, int lower_range, int upper_range, int 
     }
 
     int startBinEdge = 0;
+    int endBinEdge = 0;
     int frequency = 0;
     int frequency_scaled_down_count = 0;
-    int binEnd = 0; // TODO: coello, rename to match with other name start';
     for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
         frequency = itr->second;
         frequency_scaled_down_count = (frequency + scaling_unit - 1) / scaling_unit; // round up
         startBinEdge = (itr->first - 1) * bin_size + lower_range; 
-        binEnd = startBinEdge + bin_size;
+        endBinEdge = startBinEdge + bin_size;
         if (itr->first == left_outlier_bin_index) {
-            fprintf(f, "%d-%d,\t%d\n", min_value, lower_range, frequency); // TODO: coello, why not usew logMsgToFile???
+            fprintf(f, "%d-%d,\t\t%d\n", min_value, lower_range, frequency);
             log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, min_value, lower_range,
                 std::string(frequency_scaled_down_count, '#').c_str());
         } else if (itr->first == right_outlier_bin_index) {
             startBinEdge = upper_range;
-            int overflow_remainder = (upper_range - lower_range) % bin_size; // last bin within range will overflow this much
+            int overflow_remainder = (upper_range - lower_range) % bin_size; // last bin within range overflows this much
             if(overflow_remainder != 0) {
                 startBinEdge = upper_range + bin_size - overflow_remainder;
             }
-            fprintf(f, "%d-%d,\t%d\n", startBinEdge, max_value, frequency);
+            fprintf(f, "%d-%d,\t\t%d\n", startBinEdge, max_value, frequency);
             log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, startBinEdge, max_value,
                 std::string(frequency_scaled_down_count, '#').c_str());
         } else {
-            fprintf(f, "%d,\t%d\n",startBinEdge, frequency);
-            log_msg("bin %d-%d %s",startBinEdge, binEnd, std::string(frequency_scaled_down_count, '#').c_str());
+            fprintf(f, "%d,\t\t%d\n",startBinEdge, frequency);
+            log_msg("bin %d-%d %s",startBinEdge, endBinEdge, std::string(frequency_scaled_down_count, '#').c_str());
         }
     }
     fprintf(f, "------------------------------\n");
@@ -236,14 +178,13 @@ void printAndStoreHistogram(int bin_size, int lower_range, int upper_range, int 
 }
 
 //------------------------------------------------------------------------------
-// Sparce fixed bin histogram with outlier bins outside given range. Empty bins are omitted.
+/* Sparce fixed bin histogram with outlier bins outside given range */
 void makeHistogram(TicksDuration *sortedpLat, size_t size) {
     int lower_range = s_user_params.histogram_lower_range;
     int upper_range = s_user_params.histogram_upper_range;
-    int bin_size = s_user_params.histogram_bin_size; // microseconds
-    int outside_range_count = 0;
+    int bin_size = s_user_params.histogram_bin_size;
     int left_outlier_bin_index = 0;
-    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size; // TODO: coello, might need to adjust
+    int right_outlier_bin_index = 2 + (upper_range - lower_range)/bin_size; // one more than last bin within range
     int min_value = sortedpLat[0].toDecimalUsec();
     int max_value = sortedpLat[size - 1].toDecimalUsec();
     std::map<int, int> active_bins;
@@ -254,24 +195,17 @@ void makeHistogram(TicksDuration *sortedpLat, size_t size) {
         double value = sortedpLat[i].toDecimalUsec();
         if(value < lower_range) {
             active_bins[left_outlier_bin_index]++;
-            outside_range_count++;
             continue;
         }
         if(value >= upper_range) {
             active_bins[right_outlier_bin_index]++;
-            outside_range_count++;
             continue;
         }
         int binIndex = 1 + (value - lower_range) / bin_size;
         active_bins[binIndex]++;
     }
 
-    // I'm starting to think these shouldn't be functions
-    printAndStoreHistogram(bin_size, lower_range, upper_range, outside_range_count, active_bins, min_value, max_value);
-    // TODO: Only one function would end up being used
-    // storeH1(bin_size, lower_range, upper_range, outside_range_count, active_bins, min_value, max_value);
-    // storeH2(bin_size, lower_range, upper_range, outside_range_count, active_bins);
-
+    printAndStoreHistogram(bin_size, lower_range, upper_range, active_bins, min_value, max_value);
     active_bins.clear();
 }
 
