@@ -681,7 +681,6 @@ static int proc_mode_under_load(int id, int argc, const char **argv) {
                 if (optarg) {
                     errno = 0;
                     uint32_t value = strtol(optarg, NULL, 0);
-                    // TODO: coello, check this range logic
                     uint32_t range = s_user_params.histogram_upper_range - s_user_params.histogram_lower_range;
 
                     if (errno != 0 || value <= 0 || value > range) {
@@ -1104,7 +1103,6 @@ static int proc_mode_ping_pong(int id, int argc, const char **argv) {
                 if (optarg) {
                     errno = 0;
                     uint32_t value = strtol(optarg, NULL, 0);
-                    // TODO: coello, check this range logic
                     uint32_t range = s_user_params.histogram_upper_range - s_user_params.histogram_lower_range;
 
                     if (errno != 0 || value <= 0 || value > range) {
@@ -1583,7 +1581,7 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
                 rc = SOCKPERF_ERR_BAD_ARGUMENT;
             }
         }
-    
+
         if (!rc && aopt_check(self_obj, OPT_HISTOGRAM)) {
             s_user_params.b_histogram = true;
             if (!rc && aopt_check(self_obj, OPT_HISTOGRAM_LOWER_RANGE)) {
@@ -1629,7 +1627,6 @@ static int proc_mode_playback(int id, int argc, const char **argv) {
                 if (optarg) {
                     errno = 0;
                     uint32_t value = strtol(optarg, NULL, 0);
-                    // TODO: coello, check this range logic
                     uint32_t range = s_user_params.histogram_upper_range - s_user_params.histogram_lower_range;
 
                     if (errno != 0 || value <= 0 || value > range) {

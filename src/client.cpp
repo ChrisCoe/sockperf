@@ -106,17 +106,17 @@ int getRightOutlierBinIndexReserved() {
     int lower_range = s_user_params.histogram_lower_range;
     int upper_range = s_user_params.histogram_upper_range;
     int bin_size = s_user_params.histogram_bin_size;
-
-    // Normal bin index for value is calculated with:
-    //      1 + (value - lower_range)/bin_size
-    // Right outliers all fall in the same bin which is one more than the last
-    // bin within range.
+    /*
+        Normal bin index for value is calculated with: 1 + (value - lower_range)/bin_size
+        Right outliers all fall in the same bin which is one more than the last
+        bin within range.
+    */
     return 2 + (upper_range - lower_range)/bin_size;
 }
 
 //------------------------------------------------------------------------------
 /*  Store frequencies for each non-empty bin. All bins include only start (inclusive) as
-    end (exclusive) can be inferred by adding bin size. Outlier bins include both 
+    end (exclusive) can be inferred by adding bin size. Outlier bins include both
     start and end of bin as size depends on outliers. */
 void storeHistogram(int bin_size, int lower_range, int upper_range,
                 std::map<int, int> &active_bins, int min_value, int max_value) {
@@ -126,7 +126,7 @@ void storeHistogram(int bin_size, int lower_range, int upper_range,
     FILE *f = fopen("histogram.csv", "w");
 
     fprintf(f, "------------------------------\n");
-    fprintf(f, "histogram was built using the following parameters: " 
+    fprintf(f, "histogram was built using the following parameters: "
             "--h_bin_size_us=%d --h_lower_range_us=%d --h_upper_range_us=%d\n",
             (int)g_pApp->m_const_params.histogram_bin_size,
             (int)g_pApp->m_const_params.histogram_lower_range,
@@ -135,7 +135,7 @@ void storeHistogram(int bin_size, int lower_range, int upper_range,
     fprintf(f, "bin (usec), frequency\n");
     for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
         frequency = itr->second;
-        startBinEdge = (itr->first - 1) * bin_size + lower_range; 
+        startBinEdge = (itr->first - 1) * bin_size + lower_range;
         if (itr->first == getLeftOutlierBinIndexReserved()) {
             fprintf(f, "%d-%d,\t\t%d\n", min_value, lower_range, frequency);
         } else if (itr->first == getRightOutlierBinIndexReserved()) {
@@ -145,13 +145,13 @@ void storeHistogram(int bin_size, int lower_range, int upper_range,
                 startBinEdge += bin_size - overflow_remainder;
             }
             fprintf(f, "%d-%d,\t\t%d\n", startBinEdge, max_value, frequency);
-           
         } else {
             fprintf(f, "%d,\t\t%d\n",startBinEdge, frequency);
         }
     }
     fprintf(f, "------------------------------\n");
 }
+
 //------------------------------------------------------------------------------
 /*  Display histogram to fit on terminal screen width (frequency rounded up) */
 void printAndStoreHistogram(int bin_size, int lower_range, int upper_range,
@@ -195,7 +195,7 @@ void printAndStoreHistogram(int bin_size, int lower_range, int upper_range,
     for(itr = active_bins.begin(); itr != active_bins.end(); ++itr) {
         frequency = itr->second;
         frequency_scaled_down_count = (frequency + scaling_unit - 1) / scaling_unit; // round up
-        startBinEdge = (itr->first - 1) * bin_size + lower_range; 
+        startBinEdge = (itr->first - 1) * bin_size + lower_range;
         endBinEdge = startBinEdge + bin_size;
         if (itr->first == getLeftOutlierBinIndexReserved()) {
             log_msg("bin %d-%d " MAGNETA "%s (outliers)" ENDCOLOR, min_value, lower_range,
