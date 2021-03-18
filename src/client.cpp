@@ -144,9 +144,8 @@ void storeHistogram(int binSize, std::map<int, int> &activeBins, int minValue, i
     int startBinEdge = 0;
     int frequency = 0;
     std::map<int, int>::iterator itr;
-    FILE *f = fopen("histogram.csv", "w");
+    FILE *f = g_pApp->m_const_params.fileFullLog;
 
-    fprintf(f, "------------------------------\n");
     fprintf(f, "histogram was built using the following parameters: "
             "--h_bin_size_us=%d --h_lower_range_us=%d --h_upper_range_us=%d\n",
             (int)g_pApp->m_const_params.histogram_bin_size,
@@ -228,7 +227,6 @@ void printAndStoreHistogram(int binSize, std::map<int, int> &activeBins, int min
     }
 
     storeHistogram(binSize, activeBins, minValue, maxValue);
-    log_msg("See histogram.csv for full data");
 }
 
 //------------------------------------------------------------------------------
@@ -542,9 +540,9 @@ void client_statistics(int serverNo, Message *pMsgRequest) {
 
         printPercentiles(f, sortedpLat, counter);
 
-        if(s_user_params.b_histogram) makeHistogram(sortedpLat, counter);
-
         dumpFullLog(SERVER_NO, pFullLog, counter);
+
+        if(s_user_params.b_histogram) makeHistogram(sortedpLat, counter);
     }
 
     delete[] pLat;
