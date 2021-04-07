@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 Mellanox Technologies Ltd.
+ * Copyright (c) 2011-2021 Mellanox Technologies Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -317,6 +317,15 @@ int Server<IoType, SwitchActivityInfo, SwitchCalcGaps>::server_accept(int ifd) {
                                 log_dbg("peer address to accept: %s:%d [%d]",
                                         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port), active_ifd);
                             }
+#if defined(DEFINED_TLS)
+                            if (g_pApp->m_const_params.tls) {
+                                g_fds_array[active_ifd]->tls_handle = tls_connect(active_ifd);
+                                if (!g_fds_array[active_ifd]->tls_handle) {
+                                    log_err("Failed tls_connect()");
+                                    break;
+                                }
+                            }
+#endif /* DEFINED_TLS */
                             do_accept = true;
                             break;
                         }

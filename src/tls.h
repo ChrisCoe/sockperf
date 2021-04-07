@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2021 Mellanox Technologies Ltd.
+ * Copyright (c) 2021-2021 Mellanox Technologies Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -26,38 +26,20 @@
  * OF SUCH DAMAGE.
  */
 
-#include <stdexcept>
-#include "defs.h"
-#include "packet.h"
+#ifndef _TLS_H_
+#define _TLS_H_
 
-#include "common.h"
+#if defined(DEFINED_TLS)
 
-PacketTimes::PacketTimes(uint64_t _maxSequenceNo, uint64_t _replyEvery, uint64_t _numServers)
-    : m_maxSequenceNo(_maxSequenceNo), m_replyEvery(_replyEvery),
-      m_blockSize(1 + _numServers) // 1 sent + N replies
-      ,
-      m_pTimes(new TicksTime[(_maxSequenceNo / _replyEvery + 1) *
-                             m_blockSize]) //_maxSequenceNo/_replyEvery+1 is _numBlocks rounded up
-      ,
-      m_pInternalUse(&m_pTimes[1]), m_pErrors(new ArrivalErrors[_numServers]) {
-    /*
-        log_msg("m_maxSequenceNo=%lu, m_replyEvery=%lu, m_blockSize=%lu, m_pTimes=%p[%lu],
-    m_pInternalUse=%p, m_pErrors=%p[%lu]"
+#define TLS_CHIPER_DEFAULT "AES128-GCM-SHA256"
 
-                , m_maxSequenceNo, m_replyEvery, m_blockSize, m_pTimes
-                , (_maxSequenceNo / _replyEvery + 1) * m_blockSize
-                , m_pInternalUse
-                , m_pErrors, _numServers
-                );
-    //*/
-}
+int tls_init(void);
+void tls_exit(void);
+void *tls_connect(int fd);
+int tls_write(void *handle, const void *buf, int num);
+int tls_read(void *handle, void *buf, int num);
+const char *tls_chipher(const char *name = NULL);
 
-PacketTimes::~PacketTimes() {
-    delete[] m_pTimes;
-    delete[] m_pErrors;
-}
+#endif /* DEFINED_TLS == 1 */
 
-bool PacketTimes::verifyError(uint64_t _seqNo) {
-    exit_with_err("_seqN > m_maxSequenceNo", SOCKPERF_ERR_FATAL);
-    return false;
-}
+#endif /*_TLS_H_*/

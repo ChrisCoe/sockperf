@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 Mellanox Technologies Ltd.
+ * Copyright (c) 2011-2021 Mellanox Technologies Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification,
@@ -231,14 +231,17 @@ enum {
     OPT_HISTOGRAM,                // 46
     OPT_HISTOGRAM_UPPER_RANGE,    // 47
     OPT_HISTOGRAM_LOWER_RANGE,    // 48
-    OPT_HISTOGRAM_BIN_SIZE        // 49
+    OPT_HISTOGRAM_BIN_SIZE,       // 49
+#if defined(DEFINED_TLS)
+    OPT_TLS
+#endif /* DEFINED_TLS */
 };
 
 static const char *const round_trip_str[] = { "latency", "rtt" };
 
 #define MODULE_NAME "sockperf"
 #define MODULE_COPYRIGHT                                                                           \
-    "Copyright (C) 2011-2020 Mellanox Technologies Ltd."                                           \
+    "Copyright (C) 2011-2021 Mellanox Technologies Ltd."                                           \
     "\nSockPerf is open source software, see http://github.com/mellanox/sockperf"
 #define log_msg(log_fmt, ...) printf(MODULE_NAME ": " log_fmt "\n", ##__VA_ARGS__)
 #define log_msg_file(file, log_fmt, ...) fprintf(file, MODULE_NAME ": " log_fmt "\n", ##__VA_ARGS__)
@@ -506,6 +509,9 @@ typedef struct fds_data {
 #ifdef USING_VMA_EXTRA_API
     Message *p_msg;
 #endif
+#if defined(DEFINED_TLS)
+    void *tls_handle;
+#endif /* DEFINED_TLS */
 } fds_data;
 
 /**
@@ -703,6 +709,9 @@ struct user_params_t {
     uint32_t dummy_mps;                   // client side only
     TicksDuration dummySendCycleDuration; // client side only
     uint32_t rate_limit;
+#if defined(DEFINED_TLS)
+    bool tls;
+#endif /* DEFINED_TLS */
 };
 
 struct mutable_params_t {};
